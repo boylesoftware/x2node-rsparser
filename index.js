@@ -160,17 +160,7 @@ class RSParser {
 	_parseObjectMarkup(startColInd, parentPrefix, ctxObjectState, propDefs) {
 
 		// determine object prefix
-		const startColDef = this._markup[startColInd];
-		let sepInd = startColDef.lastIndexOf('$');
-		const objectPrefix = (
-			sepInd >= 0 ? startColDef.substring(0, sepInd) : '');
-
-		// make sure the prefix is different from the parent
-		if (objectPrefix === parentPrefix)
-			throw new RSMarkupSyntaxError(
-				'Markup column ' + startColInd +
-					': nested object prefix must be different from the parent' +
-					' object prefix.');
+		const objectPrefix = this._getObjectPrefix(startColInd, parentPrefix);
 
 		// single handlers by type
 		const SINGLE_HANDLERS = {
@@ -187,7 +177,7 @@ class RSParser {
 			// parse column definition
 			const colDef = this._markup[colInd];
 			let prefix, propName, fetchRef;
-			sepInd = colDef.lastIndexOf('$');
+			const sepInd = colDef.lastIndexOf('$');
 			if (sepInd >= 0) {
 				prefix = colDef.substring(0, sepInd);
 				propName = colDef.substring(sepInd + 1);
@@ -260,7 +250,15 @@ class RSParser {
 				state.nextColInd = colInd;
 
 			} else if (propType === 'object?') {
-				//...
+				this._columnHandlers[colInd] =
+					this._handleSinglePolymorphicObject;
+				const state = {};
+				this._columnHandlerStates[colInd] = state;
+				if (++colInd < this._numColumns)
+					colInd = this._parsePolymorphicObjectMarkup(
+						colInd, objectPrefix, ctxObjectState, propName, state,
+						propDef.typePropertyName, propDef.subtypes);
+				state.nextColInd = colInd;
 
 			} /* TODO: more types */ else {
 				throw new RSMarkupRecordTypeError(
@@ -271,6 +269,80 @@ class RSParser {
 
 		// end of the markup
 		return colInd;
+	}
+
+	_parsePolymorphicObjectMarkup(
+		startColInd, parentPrefix, ctxObjectState, propName, propColState,
+		typePropName, subtypeDefs) {
+
+		// determine object prefix
+		const objectPrefix = this._getObjectPrefix(startColInd, parentPrefix);
+
+		// parse and process column definitions
+		let colInd = startColInd;
+		do {
+
+			// parse column definition
+			const colDef = this._markup[colInd];
+			let prefix, type;
+			const sepInd = colDef.lastIndexOf('$');
+			if (sepInd >= 0) {
+				prefix = colDef.substring(0, sepInd);
+				type = colDef.substring(sepInd + 1);
+			} else {
+				prefix = '';
+				type = colDef;
+			}
+
+			// check if end of the object types
+			if (prefix !== objectPrefix)
+				return colInd;
+
+			// lookup type definition
+			const typeDef = subtypeDefs[type];
+			if (!typeDef)
+				throw new RSMarkupSyntaxError(
+					'Markup column ' + colInd +
+						': unknown polymorphic object subtype ' + type + '.');
+
+			// create handler and parse subtype markup
+			this._columnHandlers[colInd] = this._handlePolymorphicObjectType;
+			const state = {
+				propName: propName,
+				ctxObjectState: ctxObjectState,
+				propColState: propColState,
+				typePropName: typePropName,
+				type: type
+			};
+			this._columnHandlerStates[colInd] = state;
+			if (++colInd < this._numColumns)
+				colInd = this._parseObjectMarkup(
+					colInd, objectPrefix, state, typeDef.properties);
+			state.nextColInd = colInd;
+
+		} while (colInd < this._numColumns);
+
+		// end of the markup
+		return colInd;
+	}
+
+	_getObjectPrefix(startColInd, parentPrefix) {
+
+		// determine object prefix
+		const startColDef = this._markup[startColInd];
+		const sepInd = startColDef.lastIndexOf('$');
+		const objectPrefix = (
+			sepInd >= 0 ? startColDef.substring(0, sepInd) : '');
+
+		// make sure the prefix is different from the parent
+		if (objectPrefix === parentPrefix)
+			throw new RSMarkupSyntaxError(
+				'Markup column ' + startColInd +
+					': nested object prefix must be different from the parent' +
+					' object prefix.');
+
+		// return the prefix
+		return objectPrefix;
 	}
 
 	_handleTopRecordId(state, val, rowNum) {
@@ -333,6 +405,33 @@ class RSParser {
 			return state.nextColInd;
 
 		state.record = new Object();
+		state.ctxObjectState.record[state.propName] = state.record;
+
+		return colInd + 1;
+	}
+
+	_handleSinglePolymorphicObject(state, val, rowNum, colInd) {
+
+		state.hasValue = false;
+
+		return colInd + 1;
+	}
+
+	_handlePolymorphicObjectType(state, val, rowNum, colInd) {
+
+		if (this._valueExtractors['isNull'](
+			val, rowNum, colInd, this._options))
+			return state.nextColInd;
+
+		if (state.propColState.hasValue)
+			throw new RSMarkupDataError(
+				'Result set row ' + rowNum +
+					': more than one value for a polymorphic object.');
+
+		state.propColState.hasValue = true;
+
+		state.record = new Object();
+		state.record[state.typePropName] = state.type;
 		state.ctxObjectState.record[state.propName] = state.record;
 
 		return colInd + 1;
