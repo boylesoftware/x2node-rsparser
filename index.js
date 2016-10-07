@@ -1,5 +1,13 @@
 /**
- * Result set parser module.
+ * Result set parser module. The module exports the
+ * [RSParser]{@link module:x2node-rsparser~RSParser} class.
+ *
+ * @example
+ * const RSParser = require('x2node-rsparser');
+ *
+ * const parser = new RSParser(...);
+ *
+ * @module x2node-rsparser
  */
 'use strict';
 
@@ -23,7 +31,7 @@
 class RSParserMarkupError extends Error {
 
 	/**
-	 * Create new error.
+	 * <b>The constructor is not accessible from the client code.</b>
 	 *
 	 * @param {string} message The error description.
 	 */
@@ -45,7 +53,7 @@ class RSParserMarkupError extends Error {
 class RSParserDataError extends Error {
 
 	/**
-	 * Create new error.
+	 * <b>The constructor is not accessible from the client code.</b>
 	 *
 	 * @param {string} message The error description.
 	 */
@@ -68,7 +76,7 @@ class RSParserDataError extends Error {
 class RSParserUsageError extends Error {
 
 	/**
-	 * Create new error.
+	 * <b>The constructor is not accessible from the client code.</b>
 	 *
 	 * @param {string} message The error description.
 	 */
@@ -1216,7 +1224,7 @@ class RSParser {
 	 * Create new parser. The parser instance must be initialized with markup
 	 * before it can be used.
 	 *
-	 * @param {module:x2node-records.RecordTypesLibrary} recordType Record types
+	 * @param {module:x2node-records~RecordTypesLibrary} recordType Record types
 	 * library.
 	 * @param {string} topRecordTypeName Name of the record type being parsed.
 	 * @param {Object} [options] Parser options.
@@ -1255,7 +1263,7 @@ class RSParser {
 	 * Record types library.
 	 *
 	 * @protected
-	 * @type {module:x2node-records.RecordTypesLibrary}
+	 * @type {module:x2node-records~RecordTypesLibrary}
 	 * @readonly
 	 */
 	get recordTypes() { return this._recordTypes; }
@@ -1282,7 +1290,7 @@ class RSParser {
 	 * Handlers created from the markup for each result set column.
 	 *
 	 * @protected
-	 * @type {ColumnHandler[]}
+	 * @type {module:x2node-rsparser~ColumnHandler[]}
 	 * @readonly
 	 */
 	get columnHandlers() { return this._columnHandlers; }
@@ -1321,7 +1329,7 @@ class RSParser {
 	 * referred records.
 	 *
 	 * @protected
-	 * @param {module:x2node-records.RecordTypeDescriptor} recordTypeDesc
+	 * @param {module:x2node-records~RecordTypeDescriptor} recordTypeDesc
 	 * Referred record type descriptor.
 	 * @param {string} refVal Reference value.
 	 * @param {number} colInd Reference property column index.
@@ -1370,9 +1378,11 @@ class RSParser {
 	 * can be fed to it.
 	 *
 	 * @param {string[]} markup Markup for each column in the result set.
-	 * @throws {RSParserUsageError} If the parser has already been initialized or
-	 * the specified <code>markup</code> argument is of invalid type.
-	 * @throws {RSParserMarkupError} If provided markup syntax is invalid.
+	 * @throws {module:x2node-rsparser~RSParserUsageError} If the parser has
+	 * already been initialized or the specified <code>markup</code> argument is
+	 * of invalid type.
+	 * @throws {module:x2node-rsparser~RSParserMarkupError} If provided markup
+	 * syntax is invalid.
 	 */
 	init(markup) {
 
@@ -1420,8 +1430,9 @@ class RSParser {
 	 * @param {number} startColInd First object property column index.
 	 * @param {string} parentPrefix Parent markup prefix.
 	 * @param {number} lastAnchorColInd Index of the last anchor column.
-	 * @param {ColumnHandler} parentHandler Context object handler.
-	 * @param {module:x2node-records.PropertiesContainer} container Context
+	 * @param {module:x2node-rsparser~ColumnHandler} parentHandler Context object
+	 * handler.
+	 * @param {module:x2node-records~PropertiesContainer} container Context
 	 * object properties container.
 	 * @returns {number} Index of the column next after the object markup.
 	 */
@@ -1734,12 +1745,12 @@ class RSParser {
 	 * @param {number} startColInd First object subtype column index.
 	 * @param {string} parentPrefix Parent markup prefix.
 	 * @param {number} lastAnchorColInd Index of the last anchor column.
-	 * @param {module:x2node-records.PropertiesContainer} container Context
+	 * @param {module:x2node-records~PropertiesContainer} container Context
 	 * object properties container.
-	 * @param {module:x2node-records.PropertyDescriptor} propDesc Polymorphic
+	 * @param {module:x2node-records~PropertyDescriptor} propDesc Polymorphic
 	 * object property descriptor.
-	 * @param {ColumnHandler} superHandler Polymorphic object property column
-	 * handler.
+	 * @param {module:x2node-rsparser~ColumnHandler} superHandler Polymorphic
+	 * object property column handler.
 	 * @returns {number} Index of the column next after the object markup.
 	 */
 	_parsePolymorphicObjectMarkup(
@@ -1802,10 +1813,10 @@ class RSParser {
 	 * @param {number} startColInd First reference type column index.
 	 * @param {string} parentPrefix Parent markup prefix.
 	 * @param {number} lastAnchorColInd Index of the last anchor column.
-	 * @param {module:x2node-records.PropertiesContainer} container Context
+	 * @param {module:x2node-records~PropertiesContainer} container Context
 	 * object properties container.
-	 * @param {ColumnHandler} superHandler Polymorphic reference property column
-	 * handler.
+	 * @param {module:x2node-rsparser~ColumnHandler} superHandler Polymorphic
+	 * reference property column handler.
 	 * @param {boolean} fetchRef Tells if the reference needs to be fetched.
 	 * @returns {number} Index of the column next after the property markup.
 	 */
@@ -1907,9 +1918,9 @@ class RSParser {
 	 * other parser must contain the same number of records in the same order.
 	 * Each record is then merged one by one into the records in this parser.
 	 *
-	 * @param {RSParser} parser The other parser.
-	 * @throws {RSParserUsageError} If the specified parser is incompatible with
-	 * this one.
+	 * @param {module:x2node-rsparser~RSParser} parser The other parser.
+	 * @throws {module:x2node-rsparser~RSParserUsageError} If the specified
+	 * parser is incompatible with this one.
 	 */
 	merge(parser) {
 
@@ -1948,7 +1959,7 @@ class RSParser {
 	 * @param {Object} obj1 Object, into which to merge.
 	 * @param {Object} obj2 Object to merge into <code>obj1</code> (stays
 	 * unmodified).
-	 * @param {module:x2node-records.PropertiesContainer} container Container
+	 * @param {module:x2node-records~PropertiesContainer} container Container
 	 * that describes the object properties.
 	 */
 	_mergeObjects(obj1, obj2, container) {
@@ -2003,7 +2014,7 @@ class RSParser {
 	 * @param {Object[]} array1 Array, into which to merge.
 	 * @param {Object[]} array2 Array to merge into <code>array1</code> (stays
 	 * unmodified).
-	 * @param {module:x2node-records.PropertyDescriptor} propDesc Array property
+	 * @param {module:x2node-records~PropertyDescriptor} propDesc Array property
 	 * descriptor in the parent container.
 	 */
 	_mergeArrays(array1, array2, propDesc) {
@@ -2062,7 +2073,7 @@ class RSParser {
 	 * @param {Object.<string,Object>} map1 Map, into which to merge.
 	 * @param {Object.<string,Object>} map2 Map to merge into <code>map1</code>
 	 * (stays unmodified).
-	 * @param {module:x2node-records.PropertyDescriptor} propDesc Map property
+	 * @param {module:x2node-records~PropertyDescriptor} propDesc Map property
 	 * descriptor in the parent container.
 	 */
 	_mergeMaps(map1, map2, propDesc) {
