@@ -1,7 +1,5 @@
 /**
- * RSMarkup module.
- *
- * @module rsmarkup
+ * Result set parser module.
  */
 'use strict';
 
@@ -11,18 +9,30 @@
 /////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * Node.js <code>Error</code> object.
+ *
+ * @external Error
+ * @see {@link https://nodejs.org/dist/latest-v4.x/docs/api/errors.html#errors_class_error}
+ */
+
+/**
  * Invalid markup syntax.
  *
- * @extends Error
+ * @extends external:Error
  */
-class RSMarkupSyntaxError extends Error {
+class RSParserMarkupError extends Error {
 
+	/**
+	 * Create new error.
+	 *
+	 * @param {string} message The error description.
+	 */
 	constructor(message) {
 		super();
 
 		Error.captureStackTrace(this, this.constructor);
 
-		this.name = 'RSMarkupSyntaxError';
+		this.name = 'RSParserMarkupError';
 		this.message = message;
 	}
 }
@@ -30,16 +40,21 @@ class RSMarkupSyntaxError extends Error {
 /**
  * Unexpected data in the result set row.
  *
- * @extends Error
+ * @extends external:Error
  */
-class RSMarkupDataError extends Error {
+class RSParserDataError extends Error {
 
+	/**
+	 * Create new error.
+	 *
+	 * @param {string} message The error description.
+	 */
 	constructor(message) {
 		super();
 
 		Error.captureStackTrace(this, this.constructor);
 
-		this.name = 'RSMarkupDataError';
+		this.name = 'RSParserDataError';
 		this.message = message;
 	}
 }
@@ -48,16 +63,21 @@ class RSMarkupDataError extends Error {
  * General module usage error, such as invalid arguments, inappropriate function
  * call, etc.
  *
- * @extends Error
+ * @extends external:Error
  */
-class RSMarkupUsageError extends Error {
+class RSParserUsageError extends Error {
 
+	/**
+	 * Create new error.
+	 *
+	 * @param {string} message The error description.
+	 */
 	constructor(message) {
 		super();
 
 		Error.captureStackTrace(this, this.constructor);
 
-		this.name = 'RSMarkupUsageError';
+		this.name = 'RSParserUsageError';
 		this.message = message;
 	}
 }
@@ -103,7 +123,7 @@ class AnchorColumnHandler extends ColumnHandler {
 	setNextAnchor(nextAnchor) {
 
 		if (this._nextAnchor >= 0)
-			throw new RSMarkupSyntaxError(
+			throw new RSParserMarkupError(
 				'More than one collection axis at column ' + nextAnchor +
 					': anchor at column ' + this._colInd + ' already has' +
 					' a child anchor at column ' + this._nextAnchor + '.');
@@ -161,7 +181,7 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 		super(0, parser);
 
 		if (!propDesc.isId())
-			throw new RSMarkupSyntaxError(
+			throw new RSParserMarkupError(
 				'First column in the markup must refer to the record id' +
 					' property.');
 
@@ -182,7 +202,7 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 		// get the record id value
 		const val = this._valueExtractor(rawVal, rowNum, 0, this._options);
 		if (val === null)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ': top record id may not be null.');
 
 		// check if same record
@@ -190,7 +210,7 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 
 			// can't be same record if this is the only anchor
 			if (this._nextAnchor < 0)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -215,6 +235,11 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 	}
 }
 
+/**
+ * Simple single value property column handler.
+ *
+ * @protected
+ */
 class SingleValueHandler extends ColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -240,6 +265,11 @@ class SingleValueHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single nested object property column handler.
+ *
+ * @protected
+ */
 class SingleObjectHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, parentHandler, propDesc, parser) {
@@ -290,6 +320,11 @@ class SingleObjectHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single polymorphic nested object property column handler.
+ *
+ * @protected
+ */
 class SinglePolymorphicPropHandler extends ColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -324,7 +359,7 @@ class SinglePolymorphicPropHandler extends ColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -338,6 +373,11 @@ class SinglePolymorphicPropHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Handle of the polymorphic nested object subtype column.
+ *
+ * @protected
+ */
 class PolymorphicObjectTypeHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, propDesc, superHandler, type, parser) {
@@ -388,6 +428,11 @@ class PolymorphicObjectTypeHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single reference property column handler.
+ *
+ * @protected
+ */
 class SingleRefHandler extends ColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -419,6 +464,11 @@ class SingleRefHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single polymorphic reference property column handler.
+ *
+ * @protected
+ */
 class SinglePolymorphicRefHandler extends ColumnHandler {
 
 	constructor(colInd, superHandler, type, parser) {
@@ -460,6 +510,11 @@ class SinglePolymorphicRefHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single fetched reference property column handler.
+ *
+ * @protected
+ */
 class SingleFetchedRefHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, parentHandler, propDesc, parser) {
@@ -525,6 +580,11 @@ class SingleFetchedRefHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single fetched polymorphic reference property column handler.
+ *
+ * @protected
+ */
 class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, superHandler, type, parser) {
@@ -597,6 +657,11 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single row element array anchor column handler.
+ *
+ * @protected
+ */
 class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -624,7 +689,7 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 		// check if already has context array
 		if (this._anchored) {
 			if (nullAnchor)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the anchor column.');
 			return this._colInd + 1;
@@ -656,6 +721,11 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 	}
 }
 
+/**
+ * Single row element map anchor column handler.
+ *
+ * @protected
+ */
 class MapSingleRowAnchorHandler extends AnchorColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -685,13 +755,13 @@ class MapSingleRowAnchorHandler extends AnchorColumnHandler {
 
 			// anchors must change
 			if (this._lastKeyVal === null)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the map key column.');
 
 			// can't be in the middle of a map
 			if (this._lastKeyVal !== undefined)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
 
@@ -704,7 +774,7 @@ class MapSingleRowAnchorHandler extends AnchorColumnHandler {
 
 		// make sure we've got a new key
 		if ((this._lastKeyVal === null) || (keyVal === this._lastKeyVal))
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum +
 					': at least one anchor must change in each row.');
 
@@ -733,6 +803,11 @@ class MapSingleRowAnchorHandler extends AnchorColumnHandler {
 	}
 }
 
+/**
+ * Single row element array or map value column handler.
+ *
+ * @protected
+ */
 class SingleRowValueHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, propDesc, parser) {
@@ -753,6 +828,11 @@ class SingleRowValueHandler extends ColumnHandler {
 	}
 }
 
+/**
+ * Single row element array or map reference value column handler.
+ *
+ * @protected
+ */
 class SingleRowRefHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, propDesc, parser) {
@@ -789,6 +869,8 @@ class SingleRowRefHandler extends ColumnHandler {
 /**
  * Handler for a nested object array anchor column. Supports both polymorphic and
  * non-polymorphic objects.
+ *
+ * @protected
  */
 class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
@@ -824,13 +906,13 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 			// check if the anchor changed
 			if (this._lastValue === null)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the anchor column.');
 
 			// check if null anchor in the middle of a collection
 			if (this._lastValue !== undefined)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the anchor column.');
 
@@ -843,7 +925,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 		// check if was null
 		if (this._lastValue === null)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ', column ' + this._colInd +
 					': NULL expected in the anchor column.');
 
@@ -852,7 +934,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 			// at least one anchor must change
 			if (this._nextAnchor < 0)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -899,7 +981,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -917,6 +999,12 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 	}
 }
 
+/**
+ * Handler for a nested object map anchor column. Supports both polymorphic and
+ * non-polymorphic objects.
+ *
+ * @protected
+ */
 class ObjectMapAnchorHandler extends AnchorColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
@@ -955,13 +1043,13 @@ class ObjectMapAnchorHandler extends AnchorColumnHandler {
 
 			// check if the key changed
 			if (this._lastKeyVal === null)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the map key column.');
 
 			// check if null key in the middle of the map
 			if (this._lastKeyVal !== undefined)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
 
@@ -974,7 +1062,7 @@ class ObjectMapAnchorHandler extends AnchorColumnHandler {
 
 		// check if the key was null
 		if (this._lastKeyVal === null)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ', column ' + this._colInd +
 					': NULL expected in the map key column.');
 
@@ -983,7 +1071,7 @@ class ObjectMapAnchorHandler extends AnchorColumnHandler {
 
 			// at least one anchor must change
 			if (this._nextAnchor < 0)
-				throw new RSMarkupDataError(
+				throw new RSParserDataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -1030,7 +1118,7 @@ class ObjectMapAnchorHandler extends AnchorColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSMarkupDataError(
+			throw new RSParserDataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -1048,6 +1136,11 @@ class ObjectMapAnchorHandler extends AnchorColumnHandler {
 	}
 }
 
+/**
+ * Fetched reference value column handler in an array or a map.
+ *
+ * @protected
+ */
 class CollectionFetchedRefHandler extends ColumnHandler {
 
 	constructor(colInd, anchorHandler, propDesc, parser) {
@@ -1119,6 +1212,15 @@ class CollectionFetchedRefHandler extends ColumnHandler {
  */
 class RSParser {
 
+	/**
+	 * Create new parser. The parser instance must be initialized with markup
+	 * before it can be used.
+	 *
+	 * @param {module:x2node-records.RecordTypesLibrary} recordType Record types
+	 * library.
+	 * @param {string} topRecordTypeName Name of the record type being parsed.
+	 * @param {Object} [options] Parser options.
+	 */
 	constructor(recordTypes, topRecordTypeName, options) {
 
 		// store the basics
@@ -1149,14 +1251,48 @@ class RSParser {
 		this._fetchingRefs = new Array();
 	}
 
+	/**
+	 * Record types library.
+	 *
+	 * @protected
+	 * @type {module:x2node-records.RecordTypesLibrary}
+	 * @readonly
+	 */
 	get recordTypes() { return this._recordTypes; }
 
+	/**
+	 * Value extractor functions by type.
+	 *
+	 * @protected
+	 * @type {Object.<string,Function>}
+	 * @readonly
+	 */
 	get valueExtractors() { return this._valueExtractors; }
 
+	/**
+	 * Parser options.
+	 *
+	 * @protected
+	 * @type {Object}
+	 * @readonly
+	 */
 	get options() { return this._options; }
 
+	/**
+	 * Handlers created from the markup for each result set column.
+	 *
+	 * @protected
+	 * @type {ColumnHandler[]}
+	 * @readonly
+	 */
 	get columnHandlers() { return this._columnHandlers; }
 
+	/**
+	 * Add new top record to the result.
+	 *
+	 * @protected
+	 * @returns {Object} The new record instance.
+	 */
 	addNewRecord() {
 
 		const rec = this._topRecordTypeDesc.newRecord();
@@ -1166,12 +1302,33 @@ class RSParser {
 		return rec;
 	}
 
+	/**
+	 * Reset every handler in the columns following (and excluding) the specified
+	 * one. Called from an anchor handler when the anchor value changes.
+	 *
+	 * @protected
+	 * @param {number} anchorColInd The anchor column index.
+	 */
 	resetChain(anchorColInd) {
 
 		for (let i = anchorColInd + 1, len = this._numColumns; i < len; i++)
 			this._columnHandlers[i].reset();
 	}
 
+	/**
+	 * Indicate that a fetched referred record started in the current row. If
+	 * necessary, the method creates a new record instance and adds it to the
+	 * referred records.
+	 *
+	 * @protected
+	 * @param {module:x2node-records.RecordTypeDescriptor} recordTypeDesc
+	 * Referred record type descriptor.
+	 * @param {string} refVal Reference value.
+	 * @param {number} colInd Reference property column index.
+	 * @returns {Object} The referred record instance, or <code>null</code> if
+	 * already fetched and the following result set rows that belong to the
+	 * record are about to be skipped.
+	 */
 	beginReferredRecord(recordTypeDesc, refVal, colInd) {
 
 		const key = refVal + ':' + colInd;
@@ -1194,6 +1351,12 @@ class RSParser {
 		return rec;
 	}
 
+	/**
+	 * Indicate the last row of a fetched referred record.
+	 *
+	 * @protected
+	 * @param {number} colInd Reference property column index.
+	 */
 	endReferredRecord(colInd) {
 
 		const key = this._fetchingRefs[colInd] + ':' + colInd;
@@ -1207,20 +1370,20 @@ class RSParser {
 	 * can be fed to it.
 	 *
 	 * @param {string[]} markup Markup for each column in the result set.
-	 * @throws {RSMarkupUsageError} If the parser has already been initialized or
+	 * @throws {RSParserUsageError} If the parser has already been initialized or
 	 * the specified <code>markup</code> argument is of invalid type.
-	 * @throws {RSMarkupSyntaxError} If provided markup syntax is invalid.
+	 * @throws {RSParserMarkupError} If provided markup syntax is invalid.
 	 */
 	init(markup) {
 
 		// check if already initialized
 		if (this._columnHandlers)
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'The parser has been already initialized.');
 
 		// check the basic validity of the markup argument
 		if (!Array.isArray(markup) || (markup.length < 1))
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'The markup definition must be an array of strings with at' +
 					' least one element.');
 
@@ -1235,7 +1398,7 @@ class RSParser {
 		const lastColInd = this._parseObjectMarkup(
 			0, null, 0, new RootHandler(this), this._topRecordTypeDesc);
 		if (lastColInd !== this._numColumns)
-			throw new RSMarkupSyntaxError(
+			throw new RSParserMarkupError(
 				'Markup column ' + lastColInd + ': unexpected column prefix.');
 
 		// initialize empty result accumulators
@@ -1277,7 +1440,7 @@ class RSParser {
 
 			// can't stay on this level once exhausted
 			if (levelExhausted)
-				throw new RSMarkupSyntaxError(
+				throw new RSParserMarkupError(
 					'Markup column ' + colInd +
 						': cannot have any more properties at this nesting' +
 						' level.');
@@ -1302,7 +1465,7 @@ class RSParser {
 
 			// check that the property exists
 			if (!container.hasProperty(propName))
-				throw new RSMarkupSyntaxError(
+				throw new RSParserMarkupError(
 					'Markup column ' + colInd + ': record type ' +
 						container.recordTypeName + ' does not have property ' +
 						container.nestedPath + propName + '.');
@@ -1312,7 +1475,7 @@ class RSParser {
 
 			// only scalar non-polymorphic reference property can be fetched
 			if (fetchRef && !propDesc.isRef())
-				throw new RSMarkupSyntaxError(
+				throw new RSParserMarkupError(
 					'Markup column ' + colInd + ': record type ' +
 						container.recordTypeName + ' property ' +
 						container.nestedPath + propName +
@@ -1403,7 +1566,8 @@ class RSParser {
 				anchorHandler = new ArraySingleRowAnchorHandler(
 					colInd, parentHandler, propDesc, this);
 				this._columnHandlers[colInd] = anchorHandler;
-				if (++colInd < this._numColumns) {
+				if ((++colInd < this._numColumns)
+					&& (this._getLevelPrefix(colInd, prefix) !== null)) {
 					this._columnHandlers[colInd] = new SingleRowValueHandler(
 						colInd, anchorHandler, propDesc, this);
 					colInd++;
@@ -1452,7 +1616,8 @@ class RSParser {
 					anchorHandler = new ArraySingleRowAnchorHandler(
 						colInd, parentHandler, propDesc, this);
 					this._columnHandlers[colInd] = anchorHandler;
-					if (++colInd < this._numColumns) {
+					if ((++colInd < this._numColumns)
+						&& (this._getLevelPrefix(colInd, prefix) !== null)) {
 						this._columnHandlers[colInd] = new SingleRowRefHandler(
 							colInd, anchorHandler, propDesc, this);
 						colInd++;
@@ -1479,7 +1644,8 @@ class RSParser {
 				anchorHandler = new MapSingleRowAnchorHandler(
 					colInd, parentHandler, propDesc, this);
 				this._columnHandlers[colInd] = anchorHandler;
-				if (++colInd < this._numColumns) {
+				if ((++colInd < this._numColumns)
+					&& (this._getLevelPrefix(colInd, prefix) !== null)) {
 					this._columnHandlers[colInd] = new SingleRowValueHandler(
 						colInd, anchorHandler, propDesc, this);
 					colInd++;
@@ -1528,7 +1694,8 @@ class RSParser {
 					anchorHandler = new MapSingleRowAnchorHandler(
 						colInd, parentHandler, propDesc, this);
 					this._columnHandlers[colInd] = anchorHandler;
-					if (++colInd < this._numColumns) {
+					if ((++colInd < this._numColumns)
+						&& (this._getLevelPrefix(colInd, prefix) !== null)) {
 						this._columnHandlers[colInd] = new SingleRowRefHandler(
 							colInd, anchorHandler, propDesc, this);
 						colInd++;
@@ -1548,7 +1715,7 @@ class RSParser {
 				break;
 
 				default:
-				throw new RSMarkupUsageError(
+				throw new RSParserUsageError(
 					'Record type ' + container.recordTypeName + ' property ' +
 						container.nestedPath + propName +
 						' has unsupported value type specification.');
@@ -1607,7 +1774,7 @@ class RSParser {
 			// lookup subtype properties
 			const subtypeProps = propDesc.nestedProperties[type];
 			if (!subtypeProps)
-				throw new RSMarkupSyntaxError(
+				throw new RSParserMarkupError(
 					'Markup column ' + colInd +
 						': unknown polymorphic object subtype ' + type + '.');
 
@@ -1674,7 +1841,7 @@ class RSParser {
 
 			// lookup referred record type
 			if (!this._recordTypes.hasRecordType(type))
-				throw new RSMarkupSyntaxError(
+				throw new RSParserMarkupError(
 					'Markup column ' + colInd +
 						': unknown reference target record type ' + type + '.');
 			const refRecordTypeDesc = this._recordTypes.getRecordTypeDesc(type);
@@ -1741,20 +1908,20 @@ class RSParser {
 	 * Each record is then merged one by one into the records in this parser.
 	 *
 	 * @param {RSParser} parser The other parser.
-	 * @throws {RSMarkupUsageError} If the specified parser is incompatible with
+	 * @throws {RSParserUsageError} If the specified parser is incompatible with
 	 * this one.
 	 */
 	merge(parser) {
 
 		// make sure the parsers share the same top record type
 		if (parser._topRecordTypeDesc !== this._topRecordTypeDesc)
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'Parsers must share the same top record type.');
 
 		// merge the main record arrays
 		const otherRecords = parser._records;
 		if (otherRecords.length !== this._records.length)
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'Parsers must contain same number of records.');
 		this._records.forEach((rec, i) => {
 			this._mergeObjects(rec, otherRecords[i], this._topRecordTypeDesc);
@@ -1774,6 +1941,16 @@ class RSParser {
 		});
 	}
 
+	/**
+	 * Merge two objects.
+	 *
+	 * @private
+	 * @param {Object} obj1 Object, into which to merge.
+	 * @param {Object} obj2 Object to merge into <code>obj1</code> (stays
+	 * unmodified).
+	 * @param {module:x2node-records.PropertiesContainer} container Container
+	 * that describes the object properties.
+	 */
 	_mergeObjects(obj1, obj2, container) {
 
 		const idPropName = container.idPropertyName;
@@ -1795,7 +1972,7 @@ class RSParser {
 						const nestedObj2 = obj2[propName];
 						const type = nestedObj1[typePropName];
 						if (type !== nestedObj2[typePropName])
-							throw new RSMarkupUsageError(
+							throw new RSParserUsageError(
 								'Attempt to merge polymorphic objects of' +
 									' different types.');
 						this._mergeObjects(
@@ -1806,9 +1983,9 @@ class RSParser {
 							obj1[propName], obj2[propName],
 							propDesc.nestedProperties);
 					}
-				} else if (propName === idPropertyName) {
+				} else if (propName === idPropName) {
 					if (obj1[propName] !== obj2[propName])
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge objects with different ids.');
 				} else { // overwrite
 					obj1[propName] = obj2[propName];
@@ -1819,10 +1996,20 @@ class RSParser {
 		});
 	}
 
+	/**
+	 * Merge two object arrays.
+	 *
+	 * @private
+	 * @param {Object[]} array1 Array, into which to merge.
+	 * @param {Object[]} array2 Array to merge into <code>array1</code> (stays
+	 * unmodified).
+	 * @param {module:x2node-records.PropertyDescriptor} propDesc Array property
+	 * descriptor in the parent container.
+	 */
 	_mergeArrays(array1, array2, propDesc) {
 
 		if (array1.length !== array2.length)
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'Attempt to merge object arrays of different lengths.');
 
 		if (propDesc.isPolymorph()) {
@@ -1832,17 +2019,17 @@ class RSParser {
 				const obj2 = array2[i];
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					const type = obj1[typePropName];
 					if (type !== obj2[typePropName])
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge polymorphic objects of' +
 								' different types.');
 					this._mergeObjects(obj1, obj2, subtypes[type]);
@@ -1854,12 +2041,12 @@ class RSParser {
 				const obj2 = array2[i];
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					this._mergeObjects(obj1, obj2, container);
@@ -1868,11 +2055,21 @@ class RSParser {
 		}
 	}
 
+	/**
+	 * Merge two object maps.
+	 *
+	 * @private
+	 * @param {Object.<string,Object>} map1 Map, into which to merge.
+	 * @param {Object.<string,Object>} map2 Map to merge into <code>map1</code>
+	 * (stays unmodified).
+	 * @param {module:x2node-records.PropertyDescriptor} propDesc Map property
+	 * descriptor in the parent container.
+	 */
 	_mergeMaps(map1, map2, propDesc) {
 
 		const keys = Object.keys(map1);
 		if (keys.length !== Object.keys(map2))
-			throw new RSMarkupUsageError(
+			throw new RSParserUsageError(
 				'Attempt to merge object maps of different sizes.');
 
 		if (propDesc.isPolymorph()) {
@@ -1882,21 +2079,21 @@ class RSParser {
 				const obj1 = map1[key];
 				const obj2 = map2[key];
 				if (obj2 === undefined)
-					throw new RSMarkupUsageError(
+					throw new RSParserUsageError(
 						'Attempt to merge maps with different keys.');
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					const type = obj1[typePropName];
 					if (type !== obj2[typePropName])
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge polymorphic objects of' +
 								' different types.');
 					this._mergeObjects(obj1, obj2, subtypes[type]);
@@ -1908,16 +2105,16 @@ class RSParser {
 				const obj1 = map1[key];
 				const obj2 = map2[key];
 				if (obj2 === undefined)
-					throw new RSMarkupUsageError(
+					throw new RSParserUsageError(
 						'Attempt to merge maps with different keys.');
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null map element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSMarkupUsageError(
+						throw new RSParserUsageError(
 							'Attempt to merge non-null map element with' +
 								' null.');
 					this._mergeObjects(obj1, obj2, container);
@@ -1982,7 +2179,9 @@ class RSParser {
 	}
 
 	/**
-	 * Array of records extracted from the result set rows.
+	 * Array of records extracted from the result set rows. The property is
+	 * usually read by the client after all result set rows have been fed to the
+	 * parser.
 	 *
 	 * @type {Object[]}
 	 * @readonly
@@ -1993,7 +2192,9 @@ class RSParser {
 	}
 
 	/**
-	 * Records corresponding to references in fetched reference properties.
+	 * Records corresponding to references in fetched reference properties. The
+	 * property is usually read by the client after all result set rows have been
+	 * fed to the parser.
 	 *
 	 * @type {Object.<string,Object>}
 	 * @readonly
@@ -2009,16 +2210,4 @@ class RSParser {
 // Module.
 /////////////////////////////////////////////////////////////////////////////////
 
-const RecordTypesLibrary = require('./record-types-library');
-
-exports.createParser = function(
-	recordTypeDefs, topRecordTypeName, options, markup) {
-
-	const parser = new RSParser(
-		new RecordTypesLibrary(recordTypeDefs), topRecordTypeName, options);
-
-	if (markup)
-		parser.init(markup);
-
-	return parser;
-};
+module.exports = RSParser;
