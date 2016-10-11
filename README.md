@@ -47,31 +47,30 @@ connection.connect(function(err) {
 });
 
 // create and run the query
-const query = connection.query(
+connection.query(
 	'SELECT id, fname AS firstName, lname AS lastName FROM persons'
-);
-query
-	.on('error', function(err) {
-		throw err;
-	})
-	.on('fields', function(fields) {
+)
+.on('error', function(err) {
+	throw err;
+})
+.on('fields', function(fields) {
 
-		// configure the parser with the columns markup
-		parser.init(fields.map(field => field.name));
-	})
-	.on('result', function(row) {
+	// configure the parser with the columns markup
+	parser.init(fields.map(field => field.name));
+})
+.on('result', function(row) {
 
-		// feed the row to the parser
-		parser.feedRow(row);
-	})
-	.on('end', function(err) {
+	// feed the row to the parser
+	parser.feedRow(row);
+})
+.on('end', function() {
 
-		// end connection to the database
-		connection.end();
+	// end connection to the database
+	connection.end();
 
-		// print extracted records
-		console.log(JSON.stringify(parser.records));
-	});
+	// print extracted records
+	console.log(JSON.stringify(parser.records));
+});
 ```
 
 The `RSParser` constructor takes two arguments: the application's record types library and the name of the record type being extracted from the result set.
@@ -114,10 +113,22 @@ When the `feedRow(row)` method is called, the values in the provided `row` argum
 
 The extractor functions receive the following arguments:
 
-* `rawValue` - The raw value from the `row` argument provided to the `feedRow(row)` method.
-* `rowNumber` - Zero-based result set row number.
-* `colNumber` - Zero-based result set column number.
+* `rawVal` - The raw value from the `row` argument provided to the `feedRow(row)` method.
+* `rowNum` - Zero-based result set row number.
+* `colNum` - Zero-based result set column number.
 * `options` - The options object originally passed to the parser constructor.
+
+For example, if the database returns numbers as strings, a customer extractor could be used to fix that:
+
+```javascript
+const parser = new RSParser(recordTypes, 'Person', {
+	valueExtractors: {
+		'number': function(rawVal) {
+			return (rawVal === null ? null : Number(rawVal));
+		}
+	}
+});
+```
 
 ## The Columns Markup
 
