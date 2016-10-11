@@ -573,7 +573,7 @@ For example, given the record type definitions:
 			'rate': {
 				valueType: 'number'
 			}
-	}
+	},
 	...
 }
 ```
@@ -634,5 +634,151 @@ FROM
 	LEFT JOIN products AS p ON p.id = a.interest_product_id
 	LEFT JOIN services AS s ON s.id = a.interest_service_id
 ```
+
+### Collection Properties
+
+Collection properties, such as arrays and maps, add a completely new level of complexity to the problem of mapping two-dimensional result set grid into the record objects. Unless we want to issue a separate SQL query to fetch collection properties for each record in our main result set, which may prove to be exceptionally inefficient, we want to include the collection values in the same result set with the top records. SQL allows it with table joins, but now in our result set we can't say that each row corresponds to one record. Instead, multiple rows may belong to the same record and what's even worse, we don't know in advance how many rows.
+
+To solve this problem, the `RSParser` introduces the concept of *anchor columns*. The SELECT query then is written in such way that rows that belong to the same record (or nested object) are groupped together in the result set and all share the same value in the anchor column. When the parser progresses through the result set rows, as soon as the value in the anchor column changes it knows that the row belongs to the new object anchored at that column. Every result set has at least one anchor column and that's the first columnn, which contains the top record id. When only scalar properties are used, every row in the result set will have a different record id in the first column and that's why every row results in a new record. However, adding an array property to the result set will result in the parent record properties to be duplicated in the subsequent rows, including the record id, and that is how the parser will know that the rows belong to the same parent record.
+
+Another important concept is a *collection axis*. Because of the way how SQL joins work, it is impossible to select multiple collections on the same nesting level in a single query. Multiple collections can be selected, but only if they lay along a single collection axis. That is a collection of nested objects can have nested properties that are collections themselves and so on. In that case, multiple anchor columns are specified in the markup and a single query can be used. When tree-like data structures need to be loaded from the database with multiple collection properties on the same nesting level, several queries must be used, one for each collection axis, and the parsers can be merged to form the final result. This functionality is discussed later in this manual.
+
+Let's consider different scenarios case by case.
+
+#### Simple Value Arrays and Maps
+
+Given a record type like the following:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'scores': {
+				valueType: '[number]'
+			}
+		}
+	},
+	...
+}
+```
+
+and the tables in the database:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE person_scores (
+	person_id INTEGER NOT NULL,
+	score DECIMAL(3,1),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+```
+
+we can fetch records together with the `scores` property using a query like this:
+
+```sql
+SELECT
+	p.id         AS 'id',
+	p.fname      AS 'firstName',
+	p.lname      AS 'lastName',
+	v.person_id  AS 'scores',
+	v.score      AS 'a$'        -- no property name, only prefix
+FROM
+	persons AS p
+	LEFT JOIN person_scores AS v on v.person_id = p.id
+ORDER BY
+	p.id                        -- group person record rows together
+```
+
+Several important notes about the example above:
+
+* Columns that belong to the collection properties *must* always be at the end of the columns list. Given that only one collection property can be fetched at a given nesting level, no column that belongs to the parent object can appear *after* the collection property column and the columns that belong to the collection elements.
+
+* In the example above, the anchor column is the person id column (the first column in the list). The `ORDER BY` clause is used to make sure that rows that belong to the same person record follow each other in an unbroken chunk. As long as the value in the id column does not change, the parser will be adding the values in the `a$` column to the `scores` array on the same person record. As soon as the id changes, it knows that the row now belongs to the next person record.
+
+  In some databases, strictly speaking, there is no need for the `ORDER BY` clause, because it is one of the join side-effects that the rows are grouped by the id, but it is good to have the clause nonetheless to underscore the importance of it. Also, the result set can be ordered using other criteria as well as long as the rows for the same record are still grouped together. For example, if we wanted to sort the person records by last and first name, the clause would be `ORDER BY p.lname, p.fname, p.id`. The id is still needed for cases when the last and first names are identical for different records.
+
+* If the `scores` column contains `NULL`, it means that the person record does not have `scores` property and it is left unset. Note, that if it is `NULL`, only one row belong to the person record and in the next row the person id must change.
+
+* The array value column, which is the last column in the list, has a prefix, which takes to the next nesting level, but does not have a property name, because array elements do not have their own names.
+
+Similarly to an array, a map property is fetched the same way except that the map property column is used for the entry key. The value in the key column must be a string. For example, for a record type:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'scores': {
+				valueType: '{number}'
+			}
+		}
+	},
+	...
+}
+```
+
+and the tables:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE person_scores (
+	person_id INTEGER NOT NULL,
+	class_code VARCHAR(10) NOT NULL,
+	score DECIMAL(3,1),
+	UNIQUE (person_id, class_code),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+```
+
+we can fetch records like this:
+
+```sql
+SELECT
+	p.id         AS 'id',
+	p.fname      AS 'firstName',
+	p.lname      AS 'lastName',
+	v.class_code AS 'scores',   -- this is the map key
+	v.score      AS 'a$'
+FROM
+	persons AS p
+	LEFT JOIN person_scores AS v on v.person_id = p.id
+ORDER BY
+	p.id
+```
+
+Note, that in both arrays and maps, if the value column contains `NULL`, an element is still created and its value is set to JavaScript `null`.
+
+#### Nested Object Collections
 
 TODO
