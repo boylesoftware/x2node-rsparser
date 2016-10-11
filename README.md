@@ -105,15 +105,15 @@ The `RSParser` exposes the following properties and methods:
 
 When the `feedRow(row)` method is called, the values in the provided `row` argument are considered "raw". Before a value from a result set column is set into the corresponding record property it is passed through a function called *value extractor*. The default value extractors can be overridden by providing custom extraction functions for the extractor types in the parser constructor's `options` argument. The option used for that is `valueExtractors`. The keys are extractor types and the values are corresponding extractor functions. The following extractor types are used:
 
-* `string` - Used to extract string record properties. The default extractor simply returns the value from the provided `row` argument.
-* `number` - Used to extract number record properties. The default extractor simply returns the value from the provided `row` argument.
+* `string` - Used to extract string record properties. The default extractor simply returns the raw value.
+* `number` - Used to extract number record properties. The default extractor simply returns the raw value.
 * `boolean` - Used to extract Boolean record properties. The default extractor returns `null` if the raw value is `null`, otherwise it returns the result of `rawValue ? true : false` conditional operator.
-* `datetime` - Used to extract datetime record properties. The default extractor simply returns the value from the provided `row` argument.
+* `datetime` - Used to extract datetime record properties. The default extractor simply returns the raw value.
 * `isNull` - Special extractor used to test if the property value is `null`. The default extractor returns `true` if the raw value is `null`, or `false` if it is not.
 
 The extractor functions receive the following arguments:
 
-* `rawVal` - The raw value from the `row` argument provided to the `feedRow(row)` method.
+* `rawVal` - The raw value from the `row` argument provided to the parser's `feedRow(row)` method.
 * `rowNum` - Zero-based result set row number.
 * `colNum` - Zero-based result set column number.
 * `options` - The options object originally passed to the parser constructor.
@@ -131,5 +131,54 @@ const parser = new RSParser(recordTypes, 'Person', {
 ```
 
 ## The Columns Markup
+
+The result set column position and associated markup string drive the parser's logic of building records from the result set rows. The first column in the result set must always be for the record id property. Other record properties follow it. Unless any collection properties are fetched, such as arrays and maps, each row in the result set produces a record. Different record structure scenarios are discussed next.
+
+### Simple Scalar Properties
+
+In the case of simple scalar (single value) properties the column markup is simply the property name. For example, given a Person record type definition:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			}
+		}
+	},
+	...
+}
+```
+
+the markup for the columns can be simply:
+
+```javascript
+[ 'id', 'firstName', 'lastName' ]
+```
+
+If the table for storing Person records looks like:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+)
+```
+
+the markup embedded in the query as column labels could be:
+
+```sql
+SELECT id, fname AS firstName, lname AS lastName FROM persons
+```
 
 TODO
