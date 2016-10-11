@@ -132,9 +132,13 @@ const parser = new RSParser(recordTypes, 'Person', {
 
 ## The Columns Markup
 
-The result set column position and associated markup string drive the parser's logic of building records from the result set rows. The first column in the result set must always be for the record id property. Other record properties follow it. Unless any collection properties are fetched, such as arrays and maps, each row in the result set produces a record. Different record structure scenarios are discussed next.
+The result set column position and associated markup string drive the parser's logic of building records from the result set rows. The first column in the result set must always be for the record id property. Other record properties follow it. Different record structure scenarios are discussed next.
 
-### Simple Scalar Properties
+### Scalar Properties
+
+When only scalar properties are used (no arrays and no maps) each row in the result set produces exactly one record. In each result set row the first column, which is always the record id, changes its value. Let's look at different scalar value types.
+
+#### Simple Scalar Properties
 
 In the case of simple scalar (single value) properties the column markup is simply the property name. For example, given a Person record type definition:
 
@@ -179,6 +183,456 @@ the markup embedded in the query as column labels could be:
 
 ```sql
 SELECT id, fname AS firstName, lname AS lastName FROM persons
+```
+
+The columns with `NULL` values leave the corresponding properties in the resulting record unset.
+
+#### Nested Objects
+
+With nested object properties we introduce the notion of nesting levels. The markup syntax uses a prefix string for properties that belong to the same object on a given nesting level. The prefix string is prepended to the property names in the markup and is separated from the property names with a dollar sign. Prefix string for a deeper nesting level *must* be longer than the prefix of the parent level. Let's consider the following record type definition with a nested object property:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'address': {
+				valueType: 'object',
+				properties: {
+					'street': {
+						valueType: 'string'
+					},
+					'city': {
+						valueType: 'string'
+					},
+					'state': {
+						valueType: 'string'
+					},
+					'zip': {
+						valueType: 'string'
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+To select all these properties the markup can be:
+
+```javascript
+[
+	'id', 'firstName', 'lastName', 'address',
+		'a$street', 'a$city', 'a$state', 'a$zip'
+]
+```
+
+The `address` column in the result set is special. It does not carry a value that ends up being set in a resulting record property, but it tells the parser if the `address` nested object property in the resulting record is present. If the value in the column is not `NULL`, a new object is created, set as the value of the parent record `address` property, and the following nested object property columns are parsed. If the value in the `address` column is `NULL`, the `address` nested object property is not set in the Person record.
+
+The `address` nested object property could have further nested object properties, in which case the same markup pattern is repeated recursively adding longer prefixes. Here is a complex example with nested objects:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'shippingAddress': {
+				valueType: 'object',
+				properties: {
+					'street': {
+						valueType: 'string'
+					},
+					'city': {
+						valueType: 'string'
+					},
+					'state': {
+						valueType: 'string'
+					},
+					'zip': {
+						valueType: 'string'
+					}
+				}
+			},
+			'paymentInfo': {
+				valueType: 'object',
+				properties: {
+					'ccLast4Digits': {
+						valueType: 'string'
+					},
+					'billingAddress': {
+						valueType: 'object',
+						properties: {
+							'street': {
+								valueType: 'string'
+							},
+							'city': {
+								valueType: 'string'
+							},
+							'state': {
+								valueType: 'string'
+							},
+							'zip': {
+								valueType: 'string'
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+Then the markup could be:
+
+```javascript
+[
+	'id', 'firstName', 'lastName', 'shippingAddress',
+		'a$street', 'a$city', 'a$state', 'a$zip',
+	'paymentInfo',
+		'b$ccLast4Digits', 'b$billingAddress',
+			'ba$street', 'ba$city', 'ba$state', 'ba$zip'
+]
+```
+
+Columns `shippingAddress`, `paymentInfo` and `b$billingAddress` are checked by the parser for being `NULL` or not to determine if the corresponding nested object exists.
+
+#### Polymorphic Nested Objects
+
+Similarly to the regular nested object properties, polymorphic nested objects use prefixed nesting levels in the markup. However, an additional nesting level is added between the parent and the level of the object properties. This additional level is used for the subtypes and the name of the corresponding subtype is specified in the column markup instead of the property name. Consider the following example:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'paymentInfo': {
+				valueType: 'object?',
+				typePropertyName: 'type',
+				subtypes: {
+					'CREDIT_CARD': {
+						properties: {
+							'last4Digits': {
+								valueType: 'string'
+							},
+							'expDate': {
+								valueType: 'string'
+							}
+						}
+					},
+					'ACH_TRANSFER': {
+						properties: {
+							'accountType': {
+								valueType: 'string'
+							},
+							'last4Digits': {
+								valueType: 'string'
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+The markup then could be:
+
+```javascript
+[
+	'id', 'firstName', 'lastName', 'paymentInfo',
+		'a$CREDIT_CARD',
+			'aa$last4Digits', 'aa$expDate',
+		'a$ACH_TRANSFER',
+			'ab$accountType', 'ab$last4Digits'
+]
+```
+
+The value in the `paymentInfo` column is completely ignored by the parser. It is only used to indicate that the following columns markup is attributed to the `paymentInfo` property. If values in both `a$CREDIT_CARD` and `a$ACH_TRANSFER` columns are `NULL`, the `paymentInfo` property is left unset in the resulting Person record. Otherwise, only one of these columns is allowed to have a non-`NULL` value. An object of that subtype is then created by the parser and the following nested object property columns markup is used to populate it.
+
+For example, if we had the following tables:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE credit_cards (
+	person_id INTEGER NOT NULL,
+	last4digits CHAR(4),
+	expdate CHAR(6),
+	UNIQUE (person_id),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+
+CREATE TABLE bank_accounts (
+	person_id INTEGER NOT NULL,
+	accounttype VARCHAR(10),
+	last4digits CHAR(4),
+	UNIQUE (person_id),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+```
+
+then a query with embedded markup could be:
+
+```sql
+SELECT
+	p.id            AS 'id',
+	p.fname         AS 'firstName',
+	p.lname         AS 'lastName',
+	TRUE            AS 'paymentInfo',
+	cc.person_id    AS   'a$CREDIT_CARD',
+	cc.last4digits  AS     'aa$last4Digits',
+	cc.expdate      AS     'aa$expDate',
+	ba.person_id    AS   'a$ACH_TRANSFER',
+	ba.accounttype  AS     'ab$accountType',
+	ba.last4digits  AS     'ab$last4Digits'
+FROM
+	persons AS p
+	LEFT JOIN credit_cards AS cc ON cc.person_id = p.id
+	LEFT JOIN bank_accounts AS ba ON ba.person_id = p.id
+```
+
+Naturally, the above will work correctly only if a person can have either a single credit card or a single bank account, or none.
+
+#### References
+
+To receive a reference property value, the corresponding result set column value must be the target record id. For example:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			...
+			'locationRef': {
+				valueType: 'ref(Location)'
+			},
+			...
+		}
+	},
+	'Location': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'name': {
+				valueType: 'number'
+			},
+			'latitude': {
+				'valueType': 'number'
+			},
+			'longitude': {
+				'valueType': 'number'
+			}
+		}
+	}
+	...
+}
+```
+
+Then a query could be:
+
+```sql
+SELECT id, location_id AS locationRef FROM persons
+```
+
+This will yield records that look like:
+
+```json
+[
+  {
+    "id": 1,
+	"locationRef": "Location#25"
+  },
+  {
+    "id": 2,
+	"locationRef": "Location#354"
+  }
+]
+```
+
+What if we also want to fetch the referred location record in the same query? The parser supports it via the *fetched references* feature. To request a fetched reference, the reference property markup must end with a colon. Then, as if it were a nested object, the referred record property columns markup must follow. Here is a query:
+
+```sql
+SELECT
+	p.id           AS 'id',
+	p.location_id  AS 'locationRef:', -- note the colon
+	l.id           AS   'a$id',
+	l.name         AS   'a$name',
+	l.lat          AS   'a$latitude',
+	l.lng          AS   'a$longitude'
+FROM
+	persons AS p
+	JOIN locations AS l ON l.id = p.location_id
+```
+
+The fetched Location records will end up in the parser's `referredRecords` property, which may look like:
+
+```json
+{
+  "Location#25": {
+    "id": 25,
+	"name": "Home",
+	"latitude": 51.5074,
+	"longitude": 0.1278
+  },
+  "Location#354": {
+    "id": 354,
+	"name": "Work",
+	"latitude": 40.7128,
+	"longitude": 74.0059
+  }
+}
+```
+
+#### Polymorphic References
+
+As with nested objects, the references can be polymoprhic allowing referencing records of different types in the same reference property. The markup syntax for the polymorphic references is similar to that for the polymorphic nested objects. The difference is that instead of subtype names record type names are used in the markup.
+
+For example, given the record type definitions:
+
+```javascript
+{
+	...
+	'Account': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'lastInterestedInRef': {
+				valueType: 'ref(Product|Service)'
+			}
+		}
+	},
+	'Product': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'name': {
+				valueType: 'string'
+			},
+			'price': {
+				valueType: 'number'
+			}
+		}
+	},
+	'Service': {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'name': {
+				valueType: 'string'
+			},
+			'rate': {
+				valueType: 'number'
+			}
+	}
+	...
+}
+```
+
+and tables:
+
+```sql
+CREATE TABLE products (
+	id INTEGER PRIMARY KEY,
+	name VARCHAR(50) NOT NULL,
+	price DECIMAL(5,2) NOT NULL
+);
+
+CREATE TABLE services (
+	id INTEGER PRIMARY KEY,
+	name VARCHAR(50) NOT NULL,
+	rate DECIMAL(5,2) NOT NULL
+);
+
+CREATE TABLE accounts (
+	id INTEGER PRIMARY KEY,
+	-- only one can have value, the other one must be NULL
+	interest_product_id INTEGER,
+	interest_service_id INTEGER,
+	FOREIGN KEY (interest_product_id) REFERENCES products (id),
+	FOREIGN KEY (interest_service_id) REFERENCES services (id)
+);
+```
+
+to fetch accounts with the `lastInterestedInRef` references the query could be:
+
+```sql
+SELECT
+	id                   AS 'id',
+	TRUE                 AS 'lastInterestedInRef',
+	interest_product_id  AS   'a$Product',
+	interest_service_id  AS   'a$Service'
+FROM
+	accounts
+```
+
+Or, to also fetch the referred Product and Service records:
+
+```sql
+SELECT
+	a.id                   AS 'id',
+	TRUE                   AS 'lastInterestedInRef:', -- note the colon
+	a.interest_product_id  AS   'a$Product',
+	p.id                   AS     'aa$id',
+	p.name                 AS     'aa$name',
+	p.price                AS     'aa$price',
+	a.interest_service_id  AS   'a$Service',
+	s.id                   AS     'ab$id',
+	s.name                 AS     'ab$name',
+	s.rate                 AS     'ab$rate'
+FROM
+	accounts AS a
+	LEFT JOIN products AS p ON p.id = a.interest_product_id
+	LEFT JOIN services AS s ON s.id = a.interest_service_id
 ```
 
 TODO
