@@ -4,6 +4,23 @@ This module provides a parser for parsing SQL SELECT query result sets into comp
 
 The concept behind this parser is yet another take at the problem of mapping rigidly two-dimensional grids of values that are results produced by SQL SELECT queries into richly hierarchical, tree-like data structures, with which applications normally operate. The idea is to use particularly structured result sets with special syntax in the result set column labels that maps the column values to certain properties in the produced records on one hand. On the other hand, the parser is provided with the description of the supported records structure via the use of X2 Framework's [x2node-records](https://www.npmjs.com/package/x2node-records) module. The parser then can be fed with the result set rows one by one and build an array of the extracted records. In the simplest case, each row in the result set represents a single record of the given type and each column's label is the name of the record property, to which the column value maps. The parser implementation, however, supports far more complex cases including multiple levels of nested objects, polymorphic objects, reference properties and simulteneous fetch of the referred records, arrays and maps.
 
+## Table of Contents
+
+* [Usage](#usage)
+* [The API](#the-api)
+* [The Columns Markup](#the-columns-markup)
+  * [Scalar Properties](#scalar-properties)
+    * [Simple Scalar Properties](#simple-scalar-properties)
+	* [Nested Objects](#nested-objects)
+	* [Polymorphic Nested Objects](#polymorphic-nested-objects)
+	* [References](#references)
+	* [Polymorphic References](#polymorphic-references)
+  * [Collection Properties](#collection-properties)
+    * [Simple Value Arrays and Maps](#simple-value-arrays-and-maps)
+	* [Nested Object Collections](#nested-object-collections)
+	* [Reference Collections](#reference-collections)
+* [Multiple Collection Axes and Results Merging](#multiple-collection-axes-and-results-merging)
+
 ## Usage
 
 The module exports a single class `RSParser`. An instance of the `RSParser` class can be configured once for a specific result set structure and then used to parse one result set at a time, accumulating extracted records in an internal array. Here is a simple example that uses [mysql](https://www.npmjs.com/package/mysql):
@@ -781,4 +798,695 @@ Note, that in both arrays and maps, if the value column contains `NULL`, an elem
 
 #### Nested Object Collections
 
-TODO
+Nested object collections are similar to the simple value collections except that instead of a single value column without a property name in its markup at the very end of the columns list for the objects we have prefixed nested object property columns. For example, given the record type:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'addresses': {
+				valueType: '[object]',
+				properties: {
+					'id': { // objects in nested arrays must have an id
+						valueType: 'number',
+						role: 'id'
+					},
+					'street': {
+						valueType: 'string'
+					},
+					'city': {
+						valueType: 'string'
+					},
+					'state': {
+						valueType: 'string'
+					},
+					'zip': {
+						valueType: 'string'
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+and tables:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE person_addresses (
+	id INTEGER PRIMARY KEY,
+	person_id INTEGER NOT NULL,
+	street VARCHAR(50),
+	city VARCHAR(30),
+	state CHAR(2),
+	zip CHAR(5),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+```
+
+the query with embedded markup would be:
+
+```sql
+SELECT
+	p.id      AS 'id',
+	p.fname   AS 'firstName',
+	p.lname   AS 'lastName',
+	a.id      AS 'addresses',
+	a.street  AS   'a$street',
+	a.city    AS   'a$city',
+	a.state   AS   'a$state',
+	a.zip     AS   'a$zip'
+FROM
+	persons AS p
+	LEFT JOIN person_addresses AS a ON a.person_id = p.id
+ORDER BY
+	p.id
+```
+
+And we can fetch multiple nested collections along a single collection axis as well. So, if to the example above we add nested delivery event objects to the address objects:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			...
+			'addresses': {
+				valueType: '[object]',
+				properties: {
+					...
+					'deliveries': {
+						valueType: '[object]',
+						properties: {
+							'id': {
+								valueType: 'number',
+								role: 'id'
+							},
+							'date': {
+								valueType: 'string'
+							},
+							'orderRef': {
+								valueType: 'ref(Order)'
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+with an additional table:
+
+```sql
+CREATE TABLE person_address_deliveries (
+	id INTEGER PRIMARY KEY,
+	person_address_id INTEGER NOT NULL,
+	date CHAR(10),
+	order_id INTEGER NOT NULL,
+	FOREIGN KEY (person_address_id) REFERENCES person_addresses (id),
+	FOREIGN KEY (order_id) REFERENCES orders (id)
+);
+```
+
+then the query could:
+
+```sql
+SELECT
+	p.id        AS 'id',        -- first anchor
+	p.fname     AS 'firstName',
+	p.lname     AS 'lastName',
+	a.id        AS 'addresses', -- second anchor
+	a.street    AS   'a$street',
+	a.city      AS   'a$city',
+	a.state     AS   'a$state',
+	a.zip       AS   'a$zip',
+	d.id        AS   'a$deliveries',
+	d.date      AS     'aa$date',
+	d.order_id  AS     'aa$orderRef'
+FROM
+	persons AS p
+	LEFT JOIN person_addresses AS a ON a.person_id = p.id
+	LEFT JOIN person_address_deliveries AS d ON d.person_address_id = a.id
+ORDER BY
+	p.id, a.id
+```
+
+Note, that now we have two anchors in the markup and we also add the second anchor to the `ORDER BY` clause to ensure correct row grouping.
+
+Polymorphic nested objects can be fetched similarly. However, the anchor column (the column with the markup matching the polymorphic nested object property in the parent object) must have a value that's unique between all the subtypes. Sometimes, it is tricky to achieve that in a query if the it is possible that objects of different subtypes may have the same id in the database. The subtype identifier must be somehow mixed in to the anchor column value in that case. For example, given slightly modified Person record type:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'addresses': {
+				valueType: '[object?]',
+				typePropertyName: 'type',
+				subtypes: {
+					'US': {
+						'id': {
+							valueType: 'number',
+							role: 'id'
+						},
+						'street': {
+							valueType: 'string'
+						},
+						'city': {
+							valueType: 'string'
+						},
+						'state': {
+							valueType: 'string'
+						},
+						'zip': {
+							valueType: 'string'
+						}
+					},
+					'INTERNATIONAL': {
+						'id': {
+							valueType: 'number',
+							role: 'id'
+						},
+						'street': {
+							valueType: 'string'
+						},
+						'city': {
+							valueType: 'string'
+						},
+						'postalCode': {
+							valueType: 'string'
+						},
+						'country': {
+							valueType: 'string'
+						}
+					}
+				}
+			}
+		}
+	},
+	...
+}
+```
+
+and tables:
+
+```sql
+CREATE TABLE persons (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE person_us_addresses (
+	id INTEGER PRIMARY KEY,
+	person_id INTEGER NOT NULL,
+	street VARCHAR(50),
+	city VARCHAR(30),
+	state CHAR(2),
+	zip CHAR(5),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+
+CREATE TABLE person_intl_addresses (
+	id INTEGER PRIMARY KEY,
+	person_id INTEGER NOT NULL,
+	street VARCHAR(50),
+	city VARCHAR(30),
+	postal_code VARCHAR(20),
+	country CHAR(2),
+	FOREIGN KEY (person_id) REFERENCES persons (id)
+);
+```
+
+the query could be:
+
+```sql
+SELECT
+	p.id                AS 'id',
+	p.fname             AS 'firstName',
+	p.lname             AS 'lastName',
+	a.anchor            AS 'addresses',
+	a.us_id             AS   'a$US'
+	a.us_street         AS     'aa$street',
+	a.us_city           AS     'aa$city',
+	a.us_state          AS     'aa$state',
+	a.us_zip            AS     'aa$zip',
+	a.intl_id           AS   'a$INTERNATIONAL',
+	a.intl_street       AS     'ab$street',
+	a.intl_city         AS     'ab$city',
+	a.intl_postal_code  AS     'ab$postalCode',
+	a.intl_country      AS     'ab$country',
+FROM
+	persons AS p
+	LEFT JOIN (
+		SELECT
+			CONCAT('US#', id) AS 'anchor',
+			person_id,
+			id AS 'us_id',
+			street AS 'us_street',
+			city AS 'us_city',
+			state AS 'us_state',
+			zip AS 'us_zip',
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL
+		FROM
+			person_us_addresses
+		UNION
+		SELECT
+			CONCAT('INTL#', id) AS 'anchor',
+			person_id,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			id AS 'intl_id',
+			street AS 'intl_street',
+			city AS 'intl_city',
+			postal_code AS 'intl_postal_code',
+			country AS 'intl_country'
+		FROM
+			person_intl_addresses
+	) AS a ON a.person_id = p.id
+ORDER BY
+	p.id
+```
+
+The above somewhat complicated query is just an example. With a different database schema, such as use of link tables, the query could be much more elegant and providing better performance. The point of the above query is to demonstrate that the polymorphic nested object collection property anchor column *must* contain a value that is unique among all of the subtypes. Also, technically, that would matter only if we had further nested collection properties in the address objects.
+
+All of the above example deal with nested object array properties. The only change that needs to be made to make them nested object maps is to have the map keys in the anchor columns.
+
+#### Reference Collections
+
+Reference collection properties are similar to simple value collections when they are not fetched. When they are fetched, they are similar to nested object collections. Here is an example:
+
+```javascript
+{
+	...
+	'Account': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'orderRefs': {
+				valueType: '[ref(Order)]'
+			}
+		}
+	},
+	'Order': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'date': {
+				valueType: 'string'
+			},
+			'productRef': {
+				valueType: 'ref(Product)'
+			}
+		}
+	}
+	...
+}
+```
+
+and the tables:
+
+```sql
+CREATE TABLE accounts (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE orders (
+	id INTEGER PRIMARY KEY,
+	account_id INTEGER NOT NULL,
+	date CHAR(10),
+	product_id INTEGER NOT NULL,
+	FOREIGN KEY (account_id) REFERENCES accounts (id),
+	FOREIGN KEY (product_id) REFERENCES products (id)
+);
+```
+
+The query then is simply:
+
+```sql
+SELECT
+	a.id     AS 'id',
+	a.fname  AS 'firstName',
+	a.lname  AS 'lastName',
+	o.id     AS 'orderRefs',
+	o.id     AS   'a$'
+FROM
+	accounts AS a
+	LEFT JOIN orders AS o ON o.account_id = a.id
+ORDER BY
+	a.id
+```
+
+For an array, the `orderRefs` column is only checked if it is `NULL` or not. If it were a map, the `orderRefs` column would contain the map keys.
+
+Now, if we also want to fetch the referred Order records, the query would be:
+
+```sql
+SELECT
+	a.id          AS 'id',
+	a.fname       AS 'firstName',
+	a.lname       AS 'lastName',
+	o.id          AS 'orderRefs:', -- note the colon
+	o.id          AS   'a$id',
+	o.date        AS   'a$date',
+	o.product_id  AS   'a$productRef'
+FROM
+	accounts AS a
+	LEFT JOIN orders AS o ON o.account_id = a.id
+ORDER BY
+	a.id
+```
+
+Polymorphic references work similarly to the polymorphic nested objects. For example, given the following record types:
+
+```javascript
+{
+	...
+	'Account': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'orderRefs': {
+				valueType: '[ref(Order)]'
+			}
+		}
+	},
+	'Order': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'date': {
+				valueType: 'string'
+			},
+			'items': {
+				valueType: [object],
+				properties: {
+					'id': {
+						valueType: 'number',
+						role: 'id'
+					},
+					'quantity': {
+						valueType: 'number'
+					},
+					'productOrServiceRef': {
+						valueType: 'ref(Product|Service)'
+					}
+				}
+			}
+		}
+	},
+	'Product': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'name': {
+				valueType: 'string'
+			},
+			'price': {
+				valueType: 'number'
+			}
+		}
+	},
+	'Service': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'name': {
+				valueType: 'string'
+			},
+			'rate': {
+				valueType: 'number'
+			}
+		}
+	}
+	...
+}
+```
+
+and tables:
+
+```sql
+CREATE TABLE accounts (
+	id INTEGER PRIMARY KEY,
+	fname VARCHAR(30),
+	lname VARCHAR(30)
+);
+
+CREATE TABLE products (
+	id INTEGER PRIMARY KEY,
+	name VARCHAR(30),
+	price DECIMAL(5,2)
+);
+
+CREATE TABLE services (
+	id INTEGER PRIMARY KEY,
+	name VARCHAR(30),
+	rate DECIMAL(5,2)
+);
+
+CREATE TABLE orders (
+	id INTEGER PRIMARY KEY,
+	account_id INTEGER NOT NULL,
+	date CHAR(10),
+	FOREIGN KEY (account_id) REFERENCES accounts (id)
+);
+
+CREATE TABLE order_items (
+	id INTEGER PRIMARY KEY,
+	order_id INTEGER NOT NULL,
+	quantity INTEGER,
+	-- only one product_id or service_id must be set, the other must be NULL
+	product_id INTEGER,
+	service_id INTEGER,
+	FOREIGN KEY (order_id) REFERENCES orders (id),
+	FOREIGN KEY (product_id) REFERENCES products (id),
+	FOREIGN KEY (service_id) REFERENCES services (id)
+);
+```
+
+To fetch the accounts with orders, order items and the polymorphic product or service reference the query could be:
+
+```sql
+SELECT
+	a.id           AS 'id',
+	a.fname        AS 'firstName',
+	a.lname        AS 'lastName',
+	o.id           AS 'orderRefs:',                 -- anchor
+	o.id           AS   'a$id',
+	o.date         AS   'a$date',
+	oi.id          AS   'a$items',
+	oi.id          AS     'aa$id',
+	oi.quantity    AS     'aa$quantity',
+	TRUE           AS     'aa$productOrServiceRef', -- value is ignored
+	oi.product_id  AS       'aaa$Product',
+	oi.service_id  AS       'aaa$Service'
+FROM
+	accounts AS a
+	LEFT JOIN orders AS o ON o.account_id = a.id
+	LEFT JOIN order_items AS oi ON oi.order_id = o.id
+ORDER BY
+	a.id, o.id
+```
+
+Now, if we also want to fetch the referred Product or Service records, then the query would be:
+
+```sql
+SELECT
+	a.id           AS 'id',
+	a.fname        AS 'firstName',
+	a.lname        AS 'lastName',
+	o.id           AS 'orderRefs:', -- anchor
+	o.id           AS   'a$id',
+	o.date         AS   'a$date',
+	oi.id          AS   'a$items',
+	oi.id          AS     'aa$id',
+	oi.quantity    AS     'aa$quantity',
+	CASE
+		WHEN oi.product_id IS NOT NULL THEN CONCAT('P', oi.product_id)
+		WHEN oi.service_id IS NOT NULL THEN CONCAT('S', oi.service_id)
+    END            AS     'aa$productOrServiceRef:',
+	oi.product_id  AS       'aaa$Product',
+	p.id           AS         'aaaa$id',
+	p.name         AS         'aaaa$name',
+	p.price        AS         'aaaa$price',
+	oi.service_id  AS       'aaa$Service',
+	s.id           AS         'aaab$id',
+	s.name         AS         'aaab$name',
+	s.rate         AS         'aaab$rate'
+FROM
+	accounts AS a
+	LEFT JOIN orders AS o ON o.account_id = a.id
+	LEFT JOIN order_items AS oi ON oi.order_id = o.id
+	LEFT JOIN products AS p ON p.id = oi.product_id
+	LEFT JOIN services AS s ON s.id = oi.service_id
+ORDER BY
+	a.id, o.id
+```
+
+Note, that the query above absolutely relies on that every order item has *either* product *or* service reference set, but never both (technically, allows none).
+
+Also note the trick in the `aa$productOrServiceRef:` column that makes sure that the anchor values are unique among both products and services in case a product and a service share the same id value. The uniqueness is provided by adding a "P" or "S" prefix to the id depending on which reference is available.
+
+## Multiple Collection Axes and Results Merging
+
+As mentioned earlier in this manual, there is one prominent limitation to the `RSParser` capabilities when it comes to fetching collection properties: it can only fetch collection properties along a single collection axis. That is it does not allow fetching more than one collection property (an array or a map) on a single object nesting level. This limitation stems from the fact that SQL query result sets are strictly two-dimensional grids, while a data structure with multiple collection properties in the same object is more like a multi-branch tree and cannot be efficiently mapped to a 2D grid. To fetch such data structure, the tree must be "disassembled" into separate branch paths (the individual collection axes), each one then fetched with its own query and parsed with its own parser, and then the results can be merged together into a single data structure. The `RSParser` exposes `merge(otherParser)` method just for that. This method takes another parser, assumes that it contains the same records in the same order but with different properties set, and merges the properties record by record into the first parser (leaving the other parser unchanged).
+
+Let's consider the following record type with two collection properties on the same level:
+
+```javascript
+{
+	...
+	'Person': {
+		properties: {
+			'id': {
+				valueType: 'number',
+				role: 'id'
+			},
+			'firstName': {
+				valueType: 'string'
+			},
+			'lastName': {
+				valueType: 'string'
+			},
+			'addresses': {
+				valueType: '[object]',
+				properties: {
+					'id': {
+						valueType: 'number',
+						role: 'id'
+					},
+					'street': {
+						valueType: 'string'
+					},
+					'city': {
+						valueType: 'string'
+					},
+					'state': {
+						valueType: 'string'
+					},
+					'zip': {
+						valueType: 'string'
+					}
+				}
+			},
+			'orderRefs': {
+				valueType: '[ref(Order)]'
+			}
+		}
+	},
+	...
+}
+```
+
+It is impossible to fetch both `addresses` and `orderRefs` properties in a single query, so we have to split it up into two. The first query will fetch all the person data plus the addresses array:
+
+```sql
+SELECT
+	p.id      AS 'id',
+	p.fname   AS 'firstName',
+	p.lname   AS 'lastName',
+	a.id      AS 'addresses',
+	a.street  AS   'a$street',
+	a.city    AS   'a$city',
+	a.state   AS   'a$state',
+	a.zip     AS   'a$zip'
+FROM
+	persons AS p
+	LEFT JOIN person_addresses AS a ON a.person_id = p.id
+WHERE
+	p.fname = 'John'
+ORDER BY
+	p.id
+```
+
+The second query will fetch the order references (and we add fetching the referred Order records for fun):
+
+```sql
+SELECT
+	p.id          AS 'id',
+	o.id          AS 'orderRefs:',
+	o.id          AS   'a$id',
+	o.date        AS   'a$date',
+	o.product_id  AS   'a$productRef'
+FROM
+	persons AS p
+	LEFT JOIN orders AS o ON o.person_id = p.id
+WHERE
+	p.fname = 'John'
+ORDER BY
+	p.id
+```
+
+Note, that we have the same condition in the `WHERE` clause and the same `ORDER BY` clause. This will ensure that the result set will yield the same Person records and in the same order as the first query.
+
+Now, the second query parser, after completing parsing the rows, can be merged into the first one:
+
+```javascript
+parser1.merge(parser2);
+```
+
+after which, the `parser1` will contain the merged Person records in its `records` property and the fetched Order records in its `referredRecords` property. The `parser2` now can be discarded.
