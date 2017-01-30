@@ -465,7 +465,8 @@ class SingleRefHandler extends ColumnHandler {
 		// set the property in the context object
 		if (referredRecId !== null)
 			this._parentHandler.setObjectProperty(
-				this._propName, this._referredRecordTypeName + '#' + referredRecId);
+				this._propName,
+				this._referredRecordTypeName + '#' + referredRecId);
 
 		// go to the next column
 		return this._colInd + 1;
@@ -1224,7 +1225,7 @@ class RSParser {
 	 * Create new parser. The parser instance must be initialized with markup
 	 * before it can be used.
 	 *
-	 * @param {module:x2node-records~RecordTypesLibrary} recordType Record types
+	 * @param {module:x2node-records~RecordTypesLibrary} recordTypes Record types
 	 * library.
 	 * @param {string} topRecordTypeName Name of the record type being parsed.
 	 * @param {Object} [options] Parser options.
@@ -1725,7 +1726,7 @@ class RSParser {
 						anchorHandler, fetchRef);
 				break;
 
-				default:
+				default: // TODO: should never happen, remove
 				throw new RSParserUsageError(
 					'Record type ' + container.recordTypeName + ' property ' +
 						container.nestedPath + propName +
@@ -1919,6 +1920,7 @@ class RSParser {
 	 * Each record is then merged one by one into the records in this parser.
 	 *
 	 * @param {module:x2node-rsparser~RSParser} parser The other parser.
+	 * @returns {module:x2node-rsparser~RSParser} This parser.
 	 * @throws {module:x2node-rsparser~RSParserUsageError} If the specified
 	 * parser is incompatible with this one.
 	 */
@@ -1950,6 +1952,9 @@ class RSParser {
 				this._referredRecords[ref] = parser._referredRecords[ref];
 			}
 		});
+
+		// return this merged parser
+		return this;
 	}
 
 	/**
@@ -2170,10 +2175,11 @@ class RSParser {
 
 		const rowNum = this._rowsProcessed++;
 
-		if (this._skipNextNRows > 0) {
+		// TODO: fix skip rows logic: columns after the ref are lost
+		/*if (this._skipNextNRows > 0) {
 			this._skipNextNRows--;
 			return;
-		}
+		}*/
 
 		let colInd = 0;
 		if (Array.isArray(row)) {
