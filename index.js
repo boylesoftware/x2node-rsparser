@@ -1384,6 +1384,7 @@ class RSParser {
 		const key = refVal + ':' + colInd;
 		const r = this._referredRecordsNRows.get(key);
 
+		// TODO: fix, no skip the rest of columns
 		if (r !== undefined) {
 			this._skipNextNRows = r - 1;
 			return null;
@@ -2217,10 +2218,10 @@ class RSParser {
 		const rowNum = this._rowsProcessed++;
 
 		// TODO: fix skip rows logic: columns after the ref are lost
-		/*if (this._skipNextNRows > 0) {
+		if (this._skipNextNRows > 0) {
 			this._skipNextNRows--;
 			return;
-		}*/
+		}
 
 		let colInd = 0;
 		if (Array.isArray(row)) {
