@@ -147,6 +147,41 @@ class AnchorColumnHandler extends ColumnHandler {
 }
 
 /**
+ * Result set map key column handler.
+ *
+ * @protected
+ * @abstract
+ */
+class MapKeyColumnHandler extends AnchorColumnHandler {
+
+	constructor(colInd, parser, propDesc) {
+		super(colInd, parser);
+
+		if (propDesc.keyValueType === 'ref') {
+			const keyRefTarget = propDesc.keyRefTarget;
+			const refRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
+				keyRefTarget);
+			const rawKeyValueExtractor = parser.valueExtractors[
+				refRecordTypeDesc.getPropertyDesc(
+					refRecordTypeDesc.idPropertyName).scalarValueType];
+			this._keyValueExtractor = function(rawVal, rowNum, colInd, options) {
+				const val = rawKeyValueExtractor(
+					rawVal, rowNum, colInd, options);
+				return (val === null ? null : keyRefTarget + '#' + String(val));
+			};
+		} else {
+			const rawKeyValueExtractor = parser.valueExtractors[
+				propDesc.keyValueType];
+			this._keyValueExtractor = function(rawVal, rowNum, colInd, options) {
+				const val = rawKeyValueExtractor(
+					rawVal, rowNum, colInd, options);
+				return (val === null ? null : String(val));
+			};
+		}
+	}
+}
+
+/**
  * Root column handler. Technically it is not a column handler because it is not
  * associated with any column, but plays the role of the parent handler for the
  * top record id column handler.
@@ -735,14 +770,13 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
  *
  * @protected
  */
-class MapSingleRowAnchorHandler extends AnchorColumnHandler {
+class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
-		super(colInd, parser);
+		super(colInd, parser, propDesc);
 
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
-		this._keyValueExtractor = parser.valueExtractors['string'];
 
 		this.reset();
 	}
@@ -1014,17 +1048,16 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
  *
  * @protected
  */
-class ObjectMapAnchorHandler extends AnchorColumnHandler {
+class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 
 	constructor(colInd, parentHandler, propDesc, parser) {
-		super(colInd, parser);
+		super(colInd, parser, propDesc);
 
 		this._parentHandler = parentHandler;
 		this._propDesc = propDesc;
 		this._propName = propDesc.name;
 		this._isSimpleNestedObject =
 			(!propDesc.isRef() && !propDesc.isPolymorph());
-		this._keyValueExtractor = parser.valueExtractors['string'];
 
 		this.reset();
 	}
@@ -1240,13 +1273,21 @@ class RSParser {
 
 		// create default value extractors
 		this._valueExtractors = {
-			'string': function(val) { return val; },
-			'number': function(val) { return val; },
+			'string': function(val) {
+				return val;
+			},
+			'number': function(val) {
+				return val;
+			},
 			'boolean': function(val) {
 				return (val === null ? null : (val ? true : false));
 			},
-			'datetime': function(val) { return val; },
-			'isNull': function(val) { return (val === null); }
+			'datetime': function(val) {
+				return (val === null ? null : val.toISOString());
+			},
+			'isNull': function(val) {
+				return (val === null);
+			}
 		};
 
 		// replace default value extractors with custom ones from the options

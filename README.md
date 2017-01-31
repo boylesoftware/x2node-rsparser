@@ -125,7 +125,7 @@ When the `feedRow(row)` method is called, the values in the provided `row` argum
 * `string` - Used to extract string record properties. The default extractor simply returns the raw value.
 * `number` - Used to extract number record properties. The default extractor simply returns the raw value.
 * `boolean` - Used to extract Boolean record properties. The default extractor returns `null` if the raw value is `null`, otherwise it returns the result of `rawValue ? true : false` conditional operator.
-* `datetime` - Used to extract datetime record properties. The default extractor simply returns the raw value.
+* `datetime` - Used to extract datetime record properties. The default extractor assumes the raw value to be an instance of `Date` (or `null`) and returns the result of calling `toISOString()` method on it.
 * `isNull` - Special extractor used to test if the property value is `null`. The default extractor returns `true` if the raw value is `null`, or `false` if it is not.
 
 The extractor functions receive the following arguments:
