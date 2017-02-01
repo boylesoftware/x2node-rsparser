@@ -1,104 +1,45 @@
 /**
- * Result set parser module. The module exports the
- * [RSParser]{@link module:x2node-rsparser~RSParser} class.
- *
- * @example
- * const RSParser = require('x2node-rsparser');
- *
- * const parser = new RSParser(...);
+ * Database query result set parser module.
  *
  * @module x2node-rsparser
  */
 'use strict';
 
+const common = require('x2node-common');
 
-/////////////////////////////////////////////////////////////////////////////////
-// Errors.
-/////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Node.js <code>Error</code> object.
+ * Value extractors.
  *
- * @external Error
- * @see {@link https://nodejs.org/dist/latest-v4.x/docs/api/errors.html#errors_class_error}
+ * @private
  */
-
-/**
- * Invalid markup syntax.
- *
- * @extends external:Error
- */
-class RSParserMarkupError extends Error {
-
-	/**
-	 * <b>The constructor is not accessible from the client code.</b>
-	 *
-	 * @param {string} message The error description.
-	 */
-	constructor(message) {
-		super();
-
-		Error.captureStackTrace(this, this.constructor);
-
-		this.name = 'RSParserMarkupError';
-		this.message = message;
+const VALUE_EXTRACTORS = {
+	'string': function(val) {
+		return val;
+	},
+	'number': function(val) {
+		return val;
+	},
+	'boolean': function(val) {
+		return (val === null ? null : (val ? true : false));
+	},
+	'datetime': function(val) {
+		return (val === null ? null : val.toISOString());
+	},
+	'isNull': function(val) {
+		return (val === null);
 	}
-}
-
-/**
- * Unexpected data in the result set row.
- *
- * @extends external:Error
- */
-class RSParserDataError extends Error {
-
-	/**
-	 * <b>The constructor is not accessible from the client code.</b>
-	 *
-	 * @param {string} message The error description.
-	 */
-	constructor(message) {
-		super();
-
-		Error.captureStackTrace(this, this.constructor);
-
-		this.name = 'RSParserDataError';
-		this.message = message;
-	}
-}
-
-/**
- * General module usage error, such as invalid arguments, inappropriate function
- * call, etc.
- *
- * @extends external:Error
- */
-class RSParserUsageError extends Error {
-
-	/**
-	 * <b>The constructor is not accessible from the client code.</b>
-	 *
-	 * @param {string} message The error description.
-	 */
-	constructor(message) {
-		super();
-
-		Error.captureStackTrace(this, this.constructor);
-
-		this.name = 'RSParserUsageError';
-		this.message = message;
-	}
-}
+};
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// Handlers.
+// Handlers
 /////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Result set column handler.
  *
- * @protected
+ * @private
  * @abstract
  */
 class ColumnHandler {
@@ -107,7 +48,6 @@ class ColumnHandler {
 
 		this._colInd = colInd;
 		this._parser = parser;
-		this._options = parser.options;
 		this._columnHandlers = parser.columnHandlers;
 	}
 
@@ -117,8 +57,9 @@ class ColumnHandler {
 /**
  * Result set anchor column handler.
  *
- * @protected
+ * @private
  * @abstract
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class AnchorColumnHandler extends ColumnHandler {
 
@@ -131,7 +72,7 @@ class AnchorColumnHandler extends ColumnHandler {
 	setNextAnchor(nextAnchor) {
 
 		if (this._nextAnchor >= 0)
-			throw new RSParserMarkupError(
+			throw new common.X2SyntaxError(
 				'More than one collection axis at column ' + nextAnchor +
 					': anchor at column ' + this._colInd + ' already has' +
 					' a child anchor at column ' + this._nextAnchor + '.');
@@ -149,8 +90,9 @@ class AnchorColumnHandler extends ColumnHandler {
 /**
  * Result set map key column handler.
  *
- * @protected
+ * @private
  * @abstract
+ * @extends module:x2node-rsparser~AnchorColumnHandler
  */
 class MapKeyColumnHandler extends AnchorColumnHandler {
 
@@ -161,20 +103,17 @@ class MapKeyColumnHandler extends AnchorColumnHandler {
 			const keyRefTarget = propDesc.keyRefTarget;
 			const refRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
 				keyRefTarget);
-			const rawKeyValueExtractor = parser.valueExtractors[
+			const rawKeyValueExtractor = VALUE_EXTRACTORS[
 				refRecordTypeDesc.getPropertyDesc(
 					refRecordTypeDesc.idPropertyName).scalarValueType];
-			this._keyValueExtractor = function(rawVal, rowNum, colInd, options) {
-				const val = rawKeyValueExtractor(
-					rawVal, rowNum, colInd, options);
+			this._keyValueExtractor = function(rawVal, rowNum, colInd) {
+				const val = rawKeyValueExtractor(rawVal, rowNum, colInd);
 				return (val === null ? null : keyRefTarget + '#' + String(val));
 			};
 		} else {
-			const rawKeyValueExtractor = parser.valueExtractors[
-				propDesc.keyValueType];
-			this._keyValueExtractor = function(rawVal, rowNum, colInd, options) {
-				const val = rawKeyValueExtractor(
-					rawVal, rowNum, colInd, options);
+			const rawKeyValueExtractor = VALUE_EXTRACTORS[propDesc.keyValueType];
+			this._keyValueExtractor = function(rawVal, rowNum, colInd) {
+				const val = rawKeyValueExtractor(rawVal, rowNum, colInd);
 				return (val === null ? null : String(val));
 			};
 		}
@@ -186,7 +125,8 @@ class MapKeyColumnHandler extends AnchorColumnHandler {
  * associated with any column, but plays the role of the parent handler for the
  * top record id column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class RootHandler extends ColumnHandler {
 
@@ -216,7 +156,8 @@ class RootHandler extends ColumnHandler {
  * Top record id column handler. Always associated with the first column in the
  * result set.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~AnchorColumnHandler
  */
 class TopRecordIdHandler extends AnchorColumnHandler {
 
@@ -224,13 +165,13 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 		super(0, parser);
 
 		if (!propDesc.isId())
-			throw new RSParserMarkupError(
+			throw new common.X2SyntaxError(
 				'First column in the markup must refer to the record id' +
 					' property.');
 
 		this._rootHandler = rootHandler;
 		this._propName = propDesc.name;
-		this._valueExtractor = parser.valueExtractors[propDesc.scalarValueType];
+		this._valueExtractor = VALUE_EXTRACTORS[propDesc.scalarValueType];
 
 		this.reset();
 	}
@@ -243,9 +184,9 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get the record id value
-		const val = this._valueExtractor(rawVal, rowNum, 0, this._options);
+		const val = this._valueExtractor(rawVal, rowNum, 0);
 		if (val === null)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ': top record id may not be null.');
 
 		// check if same record
@@ -253,7 +194,7 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 
 			// can't be same record if this is the only anchor
 			if (this._nextAnchor < 0)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -281,7 +222,8 @@ class TopRecordIdHandler extends AnchorColumnHandler {
 /**
  * Simple single value property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleValueHandler extends ColumnHandler {
 
@@ -290,14 +232,13 @@ class SingleValueHandler extends ColumnHandler {
 
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
-		this._valueExtractor = parser.valueExtractors[propDesc.scalarValueType];
+		this._valueExtractor = VALUE_EXTRACTORS[propDesc.scalarValueType];
 	}
 
 	execute(rowNum, rawVal) {
 
 		// get the value to set
-		const val = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const val = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// set the property in the context object
 		if (val !== null)
@@ -311,7 +252,8 @@ class SingleValueHandler extends ColumnHandler {
 /**
  * Single nested object property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleObjectHandler extends ColumnHandler {
 
@@ -322,7 +264,7 @@ class SingleObjectHandler extends ColumnHandler {
 		this._parentHandler = parentHandler;
 		this._propDesc = propDesc;
 		this._propName = propDesc.name;
-		this._nullChecker = parser.valueExtractors['isNull'];
+		this._nullChecker = VALUE_EXTRACTORS['isNull'];
 
 		this._nextColInd = undefined;
 
@@ -342,7 +284,7 @@ class SingleObjectHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// skip the object property columns if no object
-		if (this._nullChecker(rawVal, rowNum, this._colInd, this._options)) {
+		if (this._nullChecker(rawVal, rowNum, this._colInd)) {
 			this._anchorHandler.emptyChildAnchors(this._nextColInd);
 			return this._nextColInd;
 		}
@@ -366,7 +308,8 @@ class SingleObjectHandler extends ColumnHandler {
 /**
  * Single polymorphic nested object property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SinglePolymorphicPropHandler extends ColumnHandler {
 
@@ -402,7 +345,7 @@ class SinglePolymorphicPropHandler extends ColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -419,7 +362,8 @@ class SinglePolymorphicPropHandler extends ColumnHandler {
 /**
  * Handle of the polymorphic nested object subtype column.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class PolymorphicObjectTypeHandler extends ColumnHandler {
 
@@ -430,7 +374,7 @@ class PolymorphicObjectTypeHandler extends ColumnHandler {
 		this._propDesc = propDesc;
 		this._superHandler = superHandler;
 		this._type = type;
-		this._nullChecker = parser.valueExtractors['isNull'];
+		this._nullChecker = VALUE_EXTRACTORS['isNull'];
 
 		this._nextColInd = undefined;
 
@@ -450,7 +394,7 @@ class PolymorphicObjectTypeHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// skip object subtype columns if no object
-		if (this._nullChecker(rawVal, rowNum, this._colInd, this._options)) {
+		if (this._nullChecker(rawVal, rowNum, this._colInd)) {
 			this._anchorHandler.emptyChildAnchors(this._nextColInd);
 			return this._nextColInd;
 		}
@@ -474,7 +418,8 @@ class PolymorphicObjectTypeHandler extends ColumnHandler {
 /**
  * Single reference property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleRefHandler extends ColumnHandler {
 
@@ -486,7 +431,7 @@ class SingleRefHandler extends ColumnHandler {
 		this._referredRecordTypeName = propDesc.refTarget;
 		const refRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
 			this._referredRecordTypeName);
-		this._valueExtractor = parser.valueExtractors[
+		this._valueExtractor = VALUE_EXTRACTORS[
 			refRecordTypeDesc.getPropertyDesc(refRecordTypeDesc.idPropertyName)
 				.scalarValueType];
 	}
@@ -494,8 +439,7 @@ class SingleRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// set the property in the context object
 		if (referredRecId !== null)
@@ -511,7 +455,8 @@ class SingleRefHandler extends ColumnHandler {
 /**
  * Single polymorphic reference property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SinglePolymorphicRefHandler extends ColumnHandler {
 
@@ -521,7 +466,7 @@ class SinglePolymorphicRefHandler extends ColumnHandler {
 		this._superHandler = superHandler;
 		this._referredRecordTypeName = type;
 		const refRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(type);
-		this._valueExtractor = parser.valueExtractors[
+		this._valueExtractor = VALUE_EXTRACTORS[
 			refRecordTypeDesc.getPropertyDesc(refRecordTypeDesc.idPropertyName)
 				.scalarValueType];
 
@@ -536,8 +481,7 @@ class SinglePolymorphicRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// create reference value
 		const refVal = (
@@ -557,7 +501,8 @@ class SinglePolymorphicRefHandler extends ColumnHandler {
 /**
  * Single fetched reference property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleFetchedRefHandler extends ColumnHandler {
 
@@ -570,7 +515,7 @@ class SingleFetchedRefHandler extends ColumnHandler {
 		this._referredRecordTypeName = propDesc.refTarget;
 		this._referredRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
 			this._referredRecordTypeName);
-		this._valueExtractor = parser.valueExtractors[
+		this._valueExtractor = VALUE_EXTRACTORS[
 			this._referredRecordTypeDesc.getPropertyDesc(
 				this._referredRecordTypeDesc.idPropertyName).scalarValueType];
 
@@ -587,7 +532,7 @@ class SingleFetchedRefHandler extends ColumnHandler {
 	reset() {
 
 		if (this._curObject)
-			this._parser.endReferredRecord(this._colInd);
+			this._parser.endReferredRecord(this._colInd, this._noSkip);
 
 		this._curObject = null;
 	}
@@ -595,8 +540,7 @@ class SingleFetchedRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// skip the referred record property columns if no record
 		if (referredRecId === null) {
@@ -609,8 +553,12 @@ class SingleFetchedRefHandler extends ColumnHandler {
 		this._parentHandler.setObjectProperty(this._propName, refVal);
 
 		// create new referred record object
+		const noSkip = (
+			this._noSkip || (this._noSkip = (
+				this._nextColInd < this._columnHandlers.length))
+		);
 		this._curObject = this._parser.beginReferredRecord(
-			this._referredRecordTypeDesc, refVal, this._colInd);
+			this._referredRecordTypeDesc, refVal, this._colInd, noSkip);
 		if (this._curObject === null)
 			return this._nextColInd;
 
@@ -627,7 +575,8 @@ class SingleFetchedRefHandler extends ColumnHandler {
 /**
  * Single fetched polymorphic reference property column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 
@@ -639,7 +588,7 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 		this._referredRecordTypeName = type;
 		this._referredRecordTypeDesc =
 			parser.recordTypes.getRecordTypeDesc(type);
-		this._valueExtractor = parser.valueExtractors[
+		this._valueExtractor = VALUE_EXTRACTORS[
 			this._referredRecordTypeDesc.getPropertyDesc(
 				this._referredRecordTypeDesc.idPropertyName).scalarValueType];
 
@@ -662,7 +611,7 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 	reset() {
 
 		if (this._curObject)
-			this._parser.endReferredRecord(this._colInd);
+			this._parser.endReferredRecord(this._colInd, this._noSkip);
 
 		this._curObject = null;
 	}
@@ -670,8 +619,7 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// skip the referred record property columns if no record
 		if (referredRecId === null) {
@@ -686,8 +634,12 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 		this._superHandler.gotValue(rowNum, this._colInd, refVal);
 
 		// create new referred record object
+		const noSkip = (
+			this._noSkip || (this._noSkip = (
+				this._nextColInd < this._columnHandlers.length))
+		);
 		this._curObject = this._parser.beginReferredRecord(
-			this._referredRecordTypeDesc, refVal, this._colInd);
+			this._referredRecordTypeDesc, refVal, this._colInd, noSkip);
 		if (this._curObject === null)
 			return this._nextColInd;
 
@@ -704,7 +656,8 @@ class SingleFetchedPolymorphicRefHandler extends ColumnHandler {
 /**
  * Single row element array anchor column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~AnchorColumnHandler
  */
 class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 
@@ -713,7 +666,7 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
-		this._nullChecker = parser.valueExtractors['isNull'];
+		this._nullChecker = VALUE_EXTRACTORS['isNull'];
 
 		this.reset();
 	}
@@ -727,13 +680,12 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// check if anchor is null
-		const nullAnchor = this._nullChecker(
-			rawVal, rowNum, this._colInd, this._options);
+		const nullAnchor = this._nullChecker(rawVal, rowNum, this._colInd);
 
 		// check if already has context array
 		if (this._anchored) {
 			if (nullAnchor)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the anchor column.');
 			return this._colInd + 1;
@@ -768,7 +720,8 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 /**
  * Single row element map anchor column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~MapKeyColumnHandler
  */
 class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 
@@ -790,21 +743,20 @@ class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get the key value
-		const keyVal = this._keyValueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const keyVal = this._keyValueExtractor(rawVal, rowNum, this._colInd);
 
 		// check if the key is null
 		if (keyVal === null) {
 
 			// anchors must change
 			if (this._lastKeyVal === null)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the map key column.');
 
 			// can't be in the middle of a map
 			if (this._lastKeyVal !== undefined)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
 
@@ -817,7 +769,7 @@ class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 
 		// make sure we've got a new key
 		if ((this._lastKeyVal === null) || (keyVal === this._lastKeyVal))
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum +
 					': at least one anchor must change in each row.');
 
@@ -849,7 +801,8 @@ class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 /**
  * Single row element array or map value column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleRowValueHandler extends ColumnHandler {
 
@@ -857,14 +810,14 @@ class SingleRowValueHandler extends ColumnHandler {
 		super(colInd, parser);
 
 		this._anchorHandler = anchorHandler;
-		this._valueExtractor = parser.valueExtractors[propDesc.scalarValueType];
+		this._valueExtractor = VALUE_EXTRACTORS[propDesc.scalarValueType];
 	}
 
 	execute(rowNum, rawVal) {
 
 		// add value to the context array
 		this._anchorHandler.addElement(
-			this._valueExtractor(rawVal, rowNum, this._colInd, this._options));
+			this._valueExtractor(rawVal, rowNum, this._colInd));
 
 		// go to the next column (always last)
 		return this._colInd + 1;
@@ -874,7 +827,8 @@ class SingleRowValueHandler extends ColumnHandler {
 /**
  * Single row element array or map reference value column handler.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class SingleRowRefHandler extends ColumnHandler {
 
@@ -885,7 +839,7 @@ class SingleRowRefHandler extends ColumnHandler {
 		this._referredRecordTypeName = propDesc.refTarget;
 		const refRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
 			this._referredRecordTypeName);
-		this._valueExtractor = parser.valueExtractors[
+		this._valueExtractor = VALUE_EXTRACTORS[
 			refRecordTypeDesc.getPropertyDesc(refRecordTypeDesc.idPropertyName)
 				.scalarValueType];
 	}
@@ -893,8 +847,7 @@ class SingleRowRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// create reference value
 		const refVal = (
@@ -913,7 +866,8 @@ class SingleRowRefHandler extends ColumnHandler {
  * Handler for a nested object array anchor column. Supports both polymorphic and
  * non-polymorphic objects.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~AnchorColumnHandler
  */
 class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
@@ -925,7 +879,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 		this._propName = propDesc.name;
 		this._isSimpleNestedObject =
 			(!propDesc.isRef() && !propDesc.isPolymorph());
-		this._nullChecker = parser.valueExtractors['isNull'];
+		this._nullChecker = VALUE_EXTRACTORS['isNull'];
 
 		this.reset();
 	}
@@ -945,17 +899,17 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 		this._hasValue = false;
 
 		// check if anchor is null
-		if (this._nullChecker(rawVal, rowNum, this._colInd, this._options)) {
+		if (this._nullChecker(rawVal, rowNum, this._colInd)) {
 
 			// check if the anchor changed
 			if (this._lastValue === null)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the anchor column.');
 
 			// check if null anchor in the middle of a collection
 			if (this._lastValue !== undefined)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the anchor column.');
 
@@ -968,7 +922,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 		// check if was null
 		if (this._lastValue === null)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ', column ' + this._colInd +
 					': NULL expected in the anchor column.');
 
@@ -977,7 +931,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 			// at least one anchor must change
 			if (this._nextAnchor < 0)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -1024,7 +978,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -1046,7 +1000,8 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
  * Handler for a nested object map anchor column. Supports both polymorphic and
  * non-polymorphic objects.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~MapKeyColumnHandler
  */
 class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 
@@ -1077,21 +1032,20 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 		this._hasValue = false;
 
 		// get the key value
-		const keyVal = this._keyValueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const keyVal = this._keyValueExtractor(rawVal, rowNum, this._colInd);
 
 		// check if the key is null
 		if (keyVal === null) {
 
 			// check if the key changed
 			if (this._lastKeyVal === null)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': repeated NULL in the map key column.');
 
 			// check if null key in the middle of the map
 			if (this._lastKeyVal !== undefined)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
 
@@ -1104,7 +1058,7 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 
 		// check if the key was null
 		if (this._lastKeyVal === null)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ', column ' + this._colInd +
 					': NULL expected in the map key column.');
 
@@ -1113,7 +1067,7 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 
 			// at least one anchor must change
 			if (this._nextAnchor < 0)
-				throw new RSParserDataError(
+				throw new common.X2DataError(
 					'Result set row ' + rowNum +
 						': at least one anchor must change in each row.');
 
@@ -1160,7 +1114,7 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 
 		// check if already has value
 		if (this._hasValue)
-			throw new RSParserDataError(
+			throw new common.X2DataError(
 				'Result set row ' + rowNum + ', column ' + colInd +
 					': more than one value for a polymorphic property ' +
 					this._propName + '.');
@@ -1181,7 +1135,8 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 /**
  * Fetched reference value column handler in an array or a map.
  *
- * @protected
+ * @private
+ * @extends module:x2node-rsparser~ColumnHandler
  */
 class CollectionFetchedRefHandler extends ColumnHandler {
 
@@ -1192,9 +1147,11 @@ class CollectionFetchedRefHandler extends ColumnHandler {
 		this._referredRecordTypeName = propDesc.refTarget;
 		this._referredRecordTypeDesc = parser.recordTypes.getRecordTypeDesc(
 			this._referredRecordTypeName);
-		this._valueExtractor = parser.valueExtractors[
+		this._referredRecordIdPropName =
+			this._referredRecordTypeDesc.idPropertyName;
+		this._valueExtractor = VALUE_EXTRACTORS[
 			this._referredRecordTypeDesc.getPropertyDesc(
-				this._referredRecordTypeDesc.idPropertyName).scalarValueType];
+				this._referredRecordIdPropName).scalarValueType];
 
 		this.reset();
 	}
@@ -1202,7 +1159,7 @@ class CollectionFetchedRefHandler extends ColumnHandler {
 	reset() {
 
 		if (this._curObject)
-			this._parser.endReferredRecord(this._colInd);
+			this._parser.endReferredRecord(this._colInd, false);
 
 		this._curObject = null;
 	}
@@ -1210,8 +1167,7 @@ class CollectionFetchedRefHandler extends ColumnHandler {
 	execute(rowNum, rawVal) {
 
 		// get referred record id
-		const referredRecId = this._valueExtractor(
-			rawVal, rowNum, this._colInd, this._options);
+		const referredRecId = this._valueExtractor(rawVal, rowNum, this._colInd);
 
 		// create reference value
 		const refVal = (
@@ -1230,9 +1186,12 @@ class CollectionFetchedRefHandler extends ColumnHandler {
 
 		// create new referred record object
 		this._curObject = this._parser.beginReferredRecord(
-			this._referredRecordTypeDesc, refVal, this._colInd);
+			this._referredRecordTypeDesc, refVal, this._colInd, false);
 		if (this._curObject === null)
 			return this._columnHandlers.length;
+
+		// set id in the referred record object
+		this._curObject[this._referredRecordIdPropName] = referredRecId;
 
 		// go to the next column
 		return this._colInd + 1;
@@ -1246,53 +1205,30 @@ class CollectionFetchedRefHandler extends ColumnHandler {
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// Parser.
+// Parser
 /////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Result set parser.
  */
-class RSParser {
+class ResultSetParser {
 
 	/**
-	 * Create new parser. The parser instance must be initialized with markup
-	 * before it can be used.
+	 * <b>The constructor is not accessible from the client code. Instances are
+	 * created using module's
+	 * [createResultSetParser]{@link module:x2node-rsparser.createResultSetParser}
+	 * function.</b>
 	 *
 	 * @param {module:x2node-records~RecordTypesLibrary} recordTypes Record types
 	 * library.
 	 * @param {string} topRecordTypeName Name of the record type being parsed.
-	 * @param {Object} [options] Parser options.
 	 */
-	constructor(recordTypes, topRecordTypeName, options) {
+	constructor(recordTypes, topRecordTypeName) {
 
 		// store the basics
 		this._recordTypes = recordTypes;
 		this._topRecordTypeDesc =
 			recordTypes.getRecordTypeDesc(topRecordTypeName);
-		this._options = (options ? options : {});
-
-		// create default value extractors
-		this._valueExtractors = {
-			'string': function(val) {
-				return val;
-			},
-			'number': function(val) {
-				return val;
-			},
-			'boolean': function(val) {
-				return (val === null ? null : (val ? true : false));
-			},
-			'datetime': function(val) {
-				return (val === null ? null : val.toISOString());
-			},
-			'isNull': function(val) {
-				return (val === null);
-			}
-		};
-
-		// replace default value extractors with custom ones from the options
-		for (let n in this._options.valueExtractors)
-			this._valueExtractors[n] = this._options.valueExtractors[n];
 
 		// uninitialized column handlers placeholder
 		this._columnHandlers = null;
@@ -1304,34 +1240,15 @@ class RSParser {
 	/**
 	 * Record types library.
 	 *
-	 * @protected
 	 * @type {module:x2node-records~RecordTypesLibrary}
 	 * @readonly
 	 */
 	get recordTypes() { return this._recordTypes; }
 
 	/**
-	 * Value extractor functions by type.
-	 *
-	 * @protected
-	 * @type {Object.<string,Function>}
-	 * @readonly
-	 */
-	get valueExtractors() { return this._valueExtractors; }
-
-	/**
-	 * Parser options.
-	 *
-	 * @protected
-	 * @type {Object}
-	 * @readonly
-	 */
-	get options() { return this._options; }
-
-	/**
 	 * Handlers created from the markup for each result set column.
 	 *
-	 * @protected
+	 * @private
 	 * @type {module:x2node-rsparser~ColumnHandler[]}
 	 * @readonly
 	 */
@@ -1340,7 +1257,7 @@ class RSParser {
 	/**
 	 * Add new top record to the result.
 	 *
-	 * @protected
+	 * @private
 	 * @returns {Object} The new record instance.
 	 */
 	addNewRecord() {
@@ -1356,7 +1273,7 @@ class RSParser {
 	 * Reset every handler in the columns following (and excluding) the specified
 	 * one. Called from an anchor handler when the anchor value changes.
 	 *
-	 * @protected
+	 * @private
 	 * @param {number} anchorColInd The anchor column index.
 	 */
 	resetChain(anchorColInd) {
@@ -1370,21 +1287,21 @@ class RSParser {
 	 * necessary, the method creates a new record instance and adds it to the
 	 * referred records.
 	 *
-	 * @protected
+	 * @private
 	 * @param {module:x2node-records~RecordTypeDescriptor} recordTypeDesc
 	 * Referred record type descriptor.
 	 * @param {string} refVal Reference value.
 	 * @param {number} colInd Reference property column index.
+	 * @param {boolean} noSkip <code>true</code> to turn off row skipping.
 	 * @returns {Object} The referred record instance, or <code>null</code> if
 	 * already fetched and the following result set rows that belong to the
 	 * record are about to be skipped.
 	 */
-	beginReferredRecord(recordTypeDesc, refVal, colInd) {
+	beginReferredRecord(recordTypeDesc, refVal, colInd, noSkip) {
 
 		const key = refVal + ':' + colInd;
 		const r = this._referredRecordsNRows.get(key);
 
-		// TODO: fix, no skip the rest of columns
 		if (r !== undefined) {
 			this._skipNextNRows = r - 1;
 			return null;
@@ -1397,7 +1314,8 @@ class RSParser {
 		}
 
 		this._fetchingRefs[colInd] = refVal;
-		this._referredRecordsNRows.set(key, this._rowsProcessed);
+		if (!noSkip)
+			this._referredRecordsNRows.set(key, this._rowsProcessed);
 
 		return rec;
 	}
@@ -1405,10 +1323,14 @@ class RSParser {
 	/**
 	 * Indicate the last row of a fetched referred record.
 	 *
-	 * @protected
+	 * @private
 	 * @param {number} colInd Reference property column index.
+	 * @param {boolean} noSkip <code>true</code> to turn off row skipping.
 	 */
-	endReferredRecord(colInd) {
+	endReferredRecord(colInd, noSkip) {
+
+		if (noSkip)
+			return;
 
 		const key = this._fetchingRefs[colInd] + ':' + colInd;
 		this._referredRecordsNRows.set(
@@ -1421,22 +1343,22 @@ class RSParser {
 	 * can be fed to it.
 	 *
 	 * @param {string[]} markup Markup for each column in the result set.
-	 * @throws {module:x2node-rsparser~RSParserUsageError} If the parser has
-	 * already been initialized or the specified <code>markup</code> argument is
-	 * of invalid type.
-	 * @throws {module:x2node-rsparser~RSParserMarkupError} If provided markup
-	 * syntax is invalid.
+	 * @throws {module:x2node-common.X2UsageError} If the parser has already been
+	 * initialized or the specified <code>markup</code> argument is of invalid
+	 * type.
+	 * @throws {module:x2node-common.X2SyntaxError} If provided markup syntax is
+	 * invalid.
 	 */
 	init(markup) {
 
 		// check if already initialized
 		if (this._columnHandlers)
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'The parser has been already initialized.');
 
 		// check the basic validity of the markup argument
 		if (!Array.isArray(markup) || (markup.length < 1))
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'The markup definition must be an array of strings with at' +
 					' least one element.');
 
@@ -1451,7 +1373,7 @@ class RSParser {
 		const lastColInd = this._parseObjectMarkup(
 			0, null, 0, new RootHandler(this), this._topRecordTypeDesc);
 		if (lastColInd !== this._numColumns)
-			throw new RSParserMarkupError(
+			throw new common.X2SyntaxError(
 				'Markup column ' + lastColInd + ': unexpected column prefix.');
 
 		// initialize empty result accumulators
@@ -1494,7 +1416,7 @@ class RSParser {
 
 			// can't stay on this level once exhausted
 			if (levelExhausted)
-				throw new RSParserMarkupError(
+				throw new common.X2SyntaxError(
 					'Markup column ' + colInd +
 						': cannot have any more properties at this nesting' +
 						' level.');
@@ -1519,7 +1441,7 @@ class RSParser {
 
 			// check that the property exists
 			if (!container.hasProperty(propName))
-				throw new RSParserMarkupError(
+				throw new common.X2SyntaxError(
 					'Markup column ' + colInd + ': record type ' +
 						container.recordTypeName + ' does not have property ' +
 						container.nestedPath + propName + '.');
@@ -1529,7 +1451,7 @@ class RSParser {
 
 			// only scalar non-polymorphic reference property can be fetched
 			if (fetchRef && !propDesc.isRef())
-				throw new RSParserMarkupError(
+				throw new common.X2SyntaxError(
 					'Markup column ' + colInd + ': record type ' +
 						container.recordTypeName + ' property ' +
 						container.nestedPath + propName +
@@ -1769,7 +1691,7 @@ class RSParser {
 				break;
 
 				default: // TODO: should never happen, remove
-				throw new RSParserUsageError(
+				throw new common.X2UsageError(
 					'Record type ' + container.recordTypeName + ' property ' +
 						container.nestedPath + propName +
 						' has unsupported value type specification.');
@@ -1828,7 +1750,7 @@ class RSParser {
 			// lookup subtype properties
 			const subtypeProps = propDesc.nestedProperties[type];
 			if (!subtypeProps)
-				throw new RSParserMarkupError(
+				throw new common.X2SyntaxError(
 					'Markup column ' + colInd +
 						': unknown polymorphic object subtype ' + type + '.');
 
@@ -1895,7 +1817,7 @@ class RSParser {
 
 			// lookup referred record type
 			if (!this._recordTypes.hasRecordType(type))
-				throw new RSParserMarkupError(
+				throw new common.X2SyntaxError(
 					'Markup column ' + colInd +
 						': unknown reference target record type ' + type + '.');
 			const refRecordTypeDesc = this._recordTypes.getRecordTypeDesc(type);
@@ -1961,22 +1883,22 @@ class RSParser {
 	 * other parser must contain the same number of records in the same order.
 	 * Each record is then merged one by one into the records in this parser.
 	 *
-	 * @param {module:x2node-rsparser~RSParser} parser The other parser.
-	 * @returns {module:x2node-rsparser~RSParser} This parser.
-	 * @throws {module:x2node-rsparser~RSParserUsageError} If the specified
-	 * parser is incompatible with this one.
+	 * @param {module:x2node-rsparser~ResultSetParser} parser The other parser.
+	 * @returns {module:x2node-rsparser~ResultSetParser} This parser.
+	 * @throws {module:x2node-common.X2UsageError} If the specified parser is
+	 * incompatible with this one.
 	 */
 	merge(parser) {
 
 		// make sure the parsers share the same top record type
 		if (parser._topRecordTypeDesc !== this._topRecordTypeDesc)
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'Parsers must share the same top record type.');
 
 		// merge the main record arrays
 		const otherRecords = parser._records;
 		if (otherRecords.length !== this._records.length)
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'Parsers must contain same number of records.');
 		this._records.forEach((rec, i) => {
 			this._mergeObjects(rec, otherRecords[i], this._topRecordTypeDesc);
@@ -2030,7 +1952,7 @@ class RSParser {
 						const nestedObj2 = obj2[propName];
 						const type = nestedObj1[typePropName];
 						if (type !== nestedObj2[typePropName])
-							throw new RSParserUsageError(
+							throw new common.X2UsageError(
 								'Attempt to merge polymorphic objects of' +
 									' different types.');
 						this._mergeObjects(
@@ -2043,7 +1965,7 @@ class RSParser {
 					}
 				} else if (propName === idPropName) {
 					if (obj1[propName] !== obj2[propName])
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge objects with different ids.');
 				} else { // overwrite
 					obj1[propName] = obj2[propName];
@@ -2067,7 +1989,7 @@ class RSParser {
 	_mergeArrays(array1, array2, propDesc) {
 
 		if (array1.length !== array2.length)
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'Attempt to merge object arrays of different lengths.');
 
 		if (propDesc.isPolymorph()) {
@@ -2077,17 +1999,17 @@ class RSParser {
 				const obj2 = array2[i];
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					const type = obj1[typePropName];
 					if (type !== obj2[typePropName])
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge polymorphic objects of' +
 								' different types.');
 					this._mergeObjects(obj1, obj2, subtypes[type]);
@@ -2099,12 +2021,12 @@ class RSParser {
 				const obj2 = array2[i];
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					this._mergeObjects(obj1, obj2, container);
@@ -2127,7 +2049,7 @@ class RSParser {
 
 		const keys = Object.keys(map1);
 		if (keys.length !== Object.keys(map2))
-			throw new RSParserUsageError(
+			throw new common.X2UsageError(
 				'Attempt to merge object maps of different sizes.');
 
 		if (propDesc.isPolymorph()) {
@@ -2137,21 +2059,21 @@ class RSParser {
 				const obj1 = map1[key];
 				const obj2 = map2[key];
 				if (obj2 === undefined)
-					throw new RSParserUsageError(
+					throw new common.X2UsageError(
 						'Attempt to merge maps with different keys.');
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null array element with' +
 								' null.');
 					const type = obj1[typePropName];
 					if (type !== obj2[typePropName])
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge polymorphic objects of' +
 								' different types.');
 					this._mergeObjects(obj1, obj2, subtypes[type]);
@@ -2163,16 +2085,16 @@ class RSParser {
 				const obj1 = map1[key];
 				const obj2 = map2[key];
 				if (obj2 === undefined)
-					throw new RSParserUsageError(
+					throw new common.X2UsageError(
 						'Attempt to merge maps with different keys.');
 				if (obj1 === null) {
 					if (obj2 !== null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null map element with' +
 								' null.');
 				} else {
 					if (obj2 === null)
-						throw new RSParserUsageError(
+						throw new common.X2UsageError(
 							'Attempt to merge non-null map element with' +
 								' null.');
 					this._mergeObjects(obj1, obj2, container);
@@ -2212,12 +2134,13 @@ class RSParser {
 	 * @param {(Array|Object.<string,*>)} row The result set row, which can be an
 	 * array of raw values for each result set column, or an object with column
 	 * markup as the keys and corresponding raw values as the values.
+	 * @throws {module:x2node-common.X2DataError} If the row data does not match
+	 * the markup.
 	 */
 	feedRow(row) {
 
 		const rowNum = this._rowsProcessed++;
 
-		// TODO: fix skip rows logic: columns after the ref are lost
 		if (this._skipNextNRows > 0) {
 			this._skipNextNRows--;
 			return;
@@ -2266,7 +2189,42 @@ class RSParser {
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// Module.
+// Module
 /////////////////////////////////////////////////////////////////////////////////
 
-module.exports = RSParser;
+/**
+ * Create new query result set parser. Before it can be used, the parser instance
+ * must be initialized with markup using
+ * [init]{@link module:x2node-rsparser~ResultSetParser#init} method.
+ *
+ * @param {module:x2node-records~RecordTypesLibrary} recordTypes Record types
+ * library.
+ * @param {string} topRecordTypeName Name of the record type being parsed.
+ * @returns {module:x2node-rsparser~ResultSetParser} New uninitialized result set
+ * parser.
+ */
+exports.createResultSetParser = function(recordTypes, topRecordTypeName) {
+
+	return new ResultSetParser(recordTypes, topRecordTypeName);
+};
+
+/**
+ * Result set column value extractor function.
+ *
+ * @callback valueExtractor
+ * @param {*} rawVal Raw value returned by the underlying database driver.
+ * @param {number} rowNum Current result set row number, starting from zero.
+ * @param {number} colInd Column inder, starting from zero.
+ * @returns {*} Value to be set in the resulting record object.
+ */
+/**
+ * Register a custom result set column value extractor.
+ *
+ * @param {string} type Extractor type.
+ * @param {module:x2node-rsparser~valueExtractor} extractorFunc Extractor
+ * function.
+ */
+exports.registerValueExtractor = function(type, extractorFunc) {
+
+	VALUE_EXTRACTORS[type] = extractorFunc;
+};

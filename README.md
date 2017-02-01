@@ -23,12 +23,12 @@ The concept behind this parser is yet another take at the problem of mapping rig
 
 ## Usage
 
-The module exports a single class `RSParser`. An instance of the `RSParser` class can be configured once for a specific result set structure and then used to parse one result set at a time, accumulating extracted records in an internal array. Here is a simple example that uses [mysql](https://www.npmjs.com/package/mysql):
+Instances of the `ResultSetParser` class provided by the module are created using the module's `createResultSetParser` function. An instance of the `ResultSetParser` can be configured once for a specific result set structure and then used to parse one result set at a time, accumulating extracted records in an internal array. Here is a simple example that uses [mysql](https://www.npmjs.com/package/mysql):
 
 ```javascript
 const mysql = require('mysql');
 const records = require('x2node-records');
-const RSParser = require('x2node-rsparser');
+const rsparser = require('x2node-rsparser');
 
 // create record types library
 const recordTypes = records.createRecordTypesLibrary({
@@ -49,7 +49,7 @@ const recordTypes = records.createRecordTypesLibrary({
 });
 
 // create parser to extract Person records
-const parser = new RSParser(recordTypes, 'Person');
+const parser = rsparser.createResultSetParser(recordTypes, 'Person');
 
 // connect to the database
 const connection = mysql.createConnection({
@@ -90,7 +90,7 @@ connection.query(
 });
 ```
 
-The `RSParser` constructor takes two arguments: the application's record types library and the name of the record type being extracted from the result set.
+The `createResultSetParser` function takes two arguments: the application's record types library and the name of the record type being extracted from the result set.
 
 Note the first requirement to the result set structure: *the first column of the result set must always be the record id*.
 
@@ -102,11 +102,15 @@ When the query execution is complete, in the `end` event handler we have an arra
 
 ## The API
 
-The `RSParser` exposes the following properties and methods:
+The module exposes the following functions:
 
-* `new RSParser(recordTypes, topRecordTypeName, [options])` - The constructor used to create a new parser. The first argument is an instance of `RecordTypesLibrary` provided by the [x2node-records](https://www.npmjs.com/package/x2node-records) module. The second argument is a string that specifies the name of the record type extracted bu the parser from the result set. The optional third argument is an object with options. At the moment, the parser itself only uses `valueExtractors` option discussed later in this section, but the options object is made available to any parser customization points and can be used to configure those.
+* `createResultSetParser(recordTypes, topRecordTypeName)` - Used to create a new parser. The first argument is an instance of `RecordTypesLibrary` provided by the [x2node-records](https://www.npmjs.com/package/x2node-records) module. The second argument is a string that specifies the name of the record type extracted bu the parser from the result set.
 
   Note, that before a new parser instance can be used, it must be initialized with the result set column labels called the *columns markup*.
+
+* `registerValueExtractor(type, extractorFunc)` - Register a custom result set column value extractor. The first argument is the extractor type (one of "string", "number", "boolean", "datetime" or "isNull") and the second argument is the extractor function. After a value extractor is registered, all subsequent parsers created by the module will use the new extractor. The value extractors are discussed later in this section.
+
+The `ResultSetParser` exposes the following properties and methods:
 
 * `init(markup)` - Initialize the parser with columns markup. The markup is normally extracted from the result set column labels. The `markup` argument is an array of strings, one string per result set column. The markup syntax is discussed in detail later in this manual. Once the parser is initialized, result set rows can start to be fed to it for parsing.
 
@@ -114,13 +118,15 @@ The `RSParser` exposes the following properties and methods:
 
 * `reset()` - Reset the parser so it can be used again for the same query. The reset does not erase the markup, so once the parser is initialized, it can only be used for the same result set structure. The reset only clears the perser's internal state and the accumulated records collections.
 
+* `recordTypes` - Read-only property the provides reference to the record types library used to create the parser.
+
 * `records` - A read-only property, which is an array of extracted records. Normally, it is accessed after all of the result set rows are fed to the parser. The `reset()` method creates a new instance of the array, so that the reference to the previous parsing results can still be used outside of the parser.
 
 * `referredRecords` - The parser supports fetching records referred to by reference properties, all within the same result set as discussed later in this manual. The extracted referred records end up in this read-only property, which is an object with keys being the reference values (record type, hash sign, record id) and values being the record objects. It is a parsing result collection supplementary to the `records` property. The `reset()` method create a new instance of the referred records collection.
 
-* `merge(otherParser)` - Merge `records` and `referredRecords` in the specified other parser into this one. The `otherParser` must be an instance of `RSParser` containing the same number of records of the same record type with the same ids and in the same order. Merging multiple parsers is used primarily to support loading data structures with multiple multi-element tree branches (having multiple array and/or map properties on the same nesting level). This topic is discussed later in this manual.
+* `merge(otherParser)` - Merge `records` and `referredRecords` in the specified other parser into this one. The `otherParser` must be an instance of `ResultSetParser` containing the same number of records of the same record type with the same ids and in the same order. Merging multiple parsers is used primarily to support loading data structures with multiple multi-element tree branches (having multiple array and/or map properties on the same nesting level). This topic is discussed later in this manual.
 
-When the `feedRow(row)` method is called, the values in the provided `row` argument are considered "raw". Before a value from a result set column is set into the corresponding record property it is passed through a function called *value extractor*. The default value extractors can be overridden by providing custom extraction functions for the extractor types in the parser constructor's `options` argument. The option used for that is `valueExtractors`. The keys are extractor types and the values are corresponding extractor functions. The following extractor types are used:
+When the `feedRow(row)` method is called, the values in the provided `row` argument are considered "raw". Before a value from a result set column is set into the corresponding record property it is passed through a function called *value extractor*. The default value extractors can be overridden by providing custom extraction functions using the modules `registerValueExtractor` function. The following extractor types are used:
 
 * `string` - Used to extract string record properties. The default extractor simply returns the raw value.
 * `number` - Used to extract number record properties. The default extractor simply returns the raw value.
@@ -133,17 +139,12 @@ The extractor functions receive the following arguments:
 * `rawVal` - The raw value from the `row` argument provided to the parser's `feedRow(row)` method.
 * `rowNum` - Zero-based result set row number.
 * `colNum` - Zero-based result set column number.
-* `options` - The options object originally passed to the parser constructor.
 
-For example, if the database returns numbers as strings, a customer extractor could be used to fix that:
+For example, if the database returns numbers as strings, a custom extractor could be used to fix that:
 
 ```javascript
-const parser = new RSParser(recordTypes, 'Person', {
-	valueExtractors: {
-		'number': function(rawVal) {
-			return (rawVal === null ? null : Number(rawVal));
-		}
-	}
+rsparser.registerValueExtractor('number', function(rawVal) {
+	return (rawVal === null ? null : Number(rawVal));
 });
 ```
 
@@ -656,7 +657,7 @@ FROM
 
 Collection properties, such as arrays and maps, add a completely new level of complexity to the problem of mapping two-dimensional result set grid into the record objects. Unless we want to issue a separate SQL query to fetch collection properties for each record in our main result set, which may prove to be exceptionally inefficient, we want to include the collection values in the same result set with the top records. SQL allows it with table joins, but now in our result set we can't say that each row corresponds to one record. Instead, multiple rows may belong to the same record and what's even worse, we don't know in advance how many rows.
 
-To solve this problem, the `RSParser` introduces the concept of *anchor columns*. The SELECT query then is written in such way that rows that belong to the same record (or nested object) are groupped together in the result set and all share the same value in the anchor column. When the parser progresses through the result set rows, as soon as the value in the anchor column changes it knows that the row belongs to the new object anchored at that column. Every result set has at least one anchor column and that's the first columnn, which contains the top record id. When only scalar properties are used, every row in the result set will have a different record id in the first column and that's why every row results in a new record. However, adding an array property to the result set will result in the parent record properties to be duplicated in the subsequent rows, including the record id, and that is how the parser will know that the rows belong to the same parent record.
+To solve this problem, the `ResultSetParser` introduces the concept of *anchor columns*. The SELECT query then is written in such way that rows that belong to the same record (or nested object) are groupped together in the result set and all share the same value in the anchor column. When the parser progresses through the result set rows, as soon as the value in the anchor column changes it knows that the row belongs to the new object anchored at that column. Every result set has at least one anchor column and that's the first columnn, which contains the top record id. When only scalar properties are used, every row in the result set will have a different record id in the first column and that's why every row results in a new record. However, adding an array property to the result set will result in the parent record properties to be duplicated in the subsequent rows, including the record id, and that is how the parser will know that the rows belong to the same parent record.
 
 Another important concept is a *collection axis*. Because of the way how SQL joins work, it is impossible to select multiple collections on the same nesting level in a single query. Multiple collections can be selected, but only if they lay along a single collection axis. That is a collection of nested objects can have nested properties that are collections themselves and so on. In that case, multiple anchor columns are specified in the markup and a single query can be used. When tree-like data structures need to be loaded from the database with multiple collection properties on the same nesting level, several queries must be used, one for each collection axis, and the parsers can be merged to form the final result. This functionality is discussed later in this manual.
 
@@ -1442,7 +1443,7 @@ Also note the trick in the `aa$productOrServiceRef:` column that makes sure that
 
 ## Multiple Collection Axes and Results Merging
 
-As mentioned earlier in this manual, there is one prominent limitation to the `RSParser` capabilities when it comes to fetching collection properties: it can only fetch collection properties along a single collection axis. That is it does not allow fetching more than one collection property (an array or a map) on a single object nesting level. This limitation stems from the fact that SQL query result sets are strictly two-dimensional grids, while a data structure with multiple collection properties in the same object is more like a multi-branch tree and cannot be efficiently mapped to a 2D grid. To fetch such data structure, the tree must be "disassembled" into separate branch paths (the individual collection axes), each one then fetched with its own query and parsed with its own parser, and then the results can be merged together into a single data structure. The `RSParser` exposes `merge(otherParser)` method just for that. This method takes another parser, assumes that it contains the same records in the same order but with different properties set, and merges the properties record by record into the first parser (leaving the other parser unchanged).
+As mentioned earlier in this manual, there is one prominent limitation to the `ResultSetParser` capabilities when it comes to fetching collection properties: it can only fetch collection properties along a single collection axis. That is it does not allow fetching more than one collection property (an array or a map) on a single object nesting level. This limitation stems from the fact that SQL query result sets are strictly two-dimensional grids, while a data structure with multiple collection properties in the same object is more like a multi-branch tree and cannot be efficiently mapped to a 2D grid. To fetch such data structure, the tree must be "disassembled" into separate branch paths (the individual collection axes), each one then fetched with its own query and parsed with its own parser, and then the results can be merged together into a single data structure. The `ResultSetParser` exposes `merge(otherParser)` method just for that. This method takes another parser, assumes that it contains the same records in the same order but with different properties set, and merges the properties record by record into the first parser (leaving the other parser unchanged).
 
 Let's consider the following record type with two collection properties on the same level:
 
