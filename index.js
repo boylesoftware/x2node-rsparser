@@ -7,6 +7,8 @@
 
 const common = require('x2node-common');
 
+// TODO: data error on non-optional polymorphics when NULL
+
 
 /**
  * Value extractors.
@@ -233,6 +235,7 @@ class SingleValueHandler extends ColumnHandler {
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
 		this._valueExtractor = VALUE_EXTRACTORS[propDesc.scalarValueType];
+		this._noNulls = !propDesc.optional;
 	}
 
 	execute(rowNum, rawVal) {
@@ -243,6 +246,11 @@ class SingleValueHandler extends ColumnHandler {
 		// set the property in the context object
 		if (val !== null)
 			this._parentHandler.setObjectProperty(this._propName, val);
+		else if (this._noNulls)
+			throw new common.X2DataError(
+				'Result set row ' + rowNum + ', column ' + this._colInd +
+					': unexpected NULL for property ' + this._propName +
+					' that is not optional.');
 
 		// go to the next column
 		return this._colInd + 1;
@@ -265,6 +273,7 @@ class SingleObjectHandler extends ColumnHandler {
 		this._propDesc = propDesc;
 		this._propName = propDesc.name;
 		this._nullChecker = VALUE_EXTRACTORS['isNull'];
+		this._noNulls = !propDesc.optional;
 
 		this._nextColInd = undefined;
 
@@ -285,9 +294,15 @@ class SingleObjectHandler extends ColumnHandler {
 
 		// skip the object property columns if no object
 		if (this._nullChecker(rawVal, rowNum, this._colInd)) {
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 			this._anchorHandler.emptyChildAnchors(this._nextColInd);
 			return this._nextColInd;
 		}
+
 
 		// create new object
 		this._curObject = this._propDesc.newObject();
@@ -434,6 +449,7 @@ class SingleRefHandler extends ColumnHandler {
 		this._valueExtractor = VALUE_EXTRACTORS[
 			refRecordTypeDesc.getPropertyDesc(refRecordTypeDesc.idPropertyName)
 				.scalarValueType];
+		this._noNulls = !propDesc.optional;
 	}
 
 	execute(rowNum, rawVal) {
@@ -446,6 +462,11 @@ class SingleRefHandler extends ColumnHandler {
 			this._parentHandler.setObjectProperty(
 				this._propName,
 				this._referredRecordTypeName + '#' + referredRecId);
+		else if (this._noNulls)
+			throw new common.X2DataError(
+				'Result set row ' + rowNum + ', column ' + this._colInd +
+					': unexpected NULL for property ' + this._propName +
+					' that is not optional.');
 
 		// go to the next column
 		return this._colInd + 1;
@@ -518,6 +539,7 @@ class SingleFetchedRefHandler extends ColumnHandler {
 		this._valueExtractor = VALUE_EXTRACTORS[
 			this._referredRecordTypeDesc.getPropertyDesc(
 				this._referredRecordTypeDesc.idPropertyName).scalarValueType];
+		this._noNulls = !propDesc.optional;
 
 		this._nextColInd = undefined;
 
@@ -544,6 +566,11 @@ class SingleFetchedRefHandler extends ColumnHandler {
 
 		// skip the referred record property columns if no record
 		if (referredRecId === null) {
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 			this._anchorHandler.emptyChildAnchors(this._nextColInd);
 			return this._nextColInd;
 		}
@@ -667,6 +694,7 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
 		this._nullChecker = VALUE_EXTRACTORS['isNull'];
+		this._noNulls = !propDesc.optional;
 
 		this.reset();
 	}
@@ -695,8 +723,14 @@ class ArraySingleRowAnchorHandler extends AnchorColumnHandler {
 		this._anchored = true;
 
 		// skip the elements if no array
-		if (nullAnchor)
+		if (nullAnchor) {
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 			return this._colInd + 2; // note: should always be last
+		}
 
 		// create new array and set it in the context object
 		this._curArray = new Array();
@@ -730,6 +764,7 @@ class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 
 		this._parentHandler = parentHandler;
 		this._propName = propDesc.name;
+		this._noNulls = !propDesc.optional;
 
 		this.reset();
 	}
@@ -759,6 +794,13 @@ class MapSingleRowAnchorHandler extends MapKeyColumnHandler {
 				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
+
+			// check if the property is not optional
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 
 			// update the last key value
 			this._lastKeyVal = null;
@@ -880,6 +922,7 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 		this._isSimpleNestedObject =
 			(!propDesc.isRef() && !propDesc.isPolymorph());
 		this._nullChecker = VALUE_EXTRACTORS['isNull'];
+		this._noNulls = !propDesc.optional;
 
 		this.reset();
 	}
@@ -912,6 +955,13 @@ class ObjectArrayAnchorHandler extends AnchorColumnHandler {
 				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the anchor column.');
+
+			// check if the property is not optional
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 
 			// expect reset from a parent anchor
 			this._lastValue = null;
@@ -1013,6 +1063,7 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 		this._propName = propDesc.name;
 		this._isSimpleNestedObject =
 			(!propDesc.isRef() && !propDesc.isPolymorph());
+		this._noNulls = !propDesc.optional;
 
 		this.reset();
 	}
@@ -1048,6 +1099,13 @@ class ObjectMapAnchorHandler extends MapKeyColumnHandler {
 				throw new common.X2DataError(
 					'Result set row ' + rowNum + ', column ' + this._colInd +
 						': unexpected NULL in the map key column.');
+
+			// check if the property is not optional
+			if (this._noNulls)
+				throw new common.X2DataError(
+					'Result set row ' + rowNum + ', column ' + this._colInd +
+						': unexpected NULL for property ' + this._propName +
+						' that is not optional.');
 
 			// expect reset from an ancestor anchor
 			this._lastKeyVal = null;
