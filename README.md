@@ -718,7 +718,7 @@ SELECT
 	v.score      AS 'a$'        -- no property name, only prefix
 FROM
 	persons AS p
-	LEFT JOIN person_scores AS v on v.person_id = p.id
+	LEFT JOIN person_scores AS v ON v.person_id = p.id
 ORDER BY
 	p.id                        -- group person record rows together
 ```
@@ -790,7 +790,7 @@ SELECT
 	v.score      AS 'a$'
 FROM
 	persons AS p
-	LEFT JOIN person_scores AS v on v.person_id = p.id
+	LEFT JOIN person_scores AS v ON v.person_id = p.id
 ORDER BY
 	p.id
 ```
