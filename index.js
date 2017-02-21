@@ -1288,6 +1288,10 @@ class ResultSetParser {
 		this._topRecordTypeDesc =
 			recordTypes.getRecordTypeDesc(topRecordTypeName);
 
+		// result accumulators
+		this._records = new Array();
+		this._referredRecords = new Object();
+
 		// uninitialized column handlers placeholder
 		this._columnHandlers = null;
 
@@ -1433,10 +1437,6 @@ class ResultSetParser {
 		if (lastColInd !== this._numColumns)
 			throw new common.X2SyntaxError(
 				'Markup column ' + lastColInd + ': unexpected column prefix.');
-
-		// initialize empty result accumulators
-		this._records = new Array();
-		this._referredRecords = new Object();
 
 		// initialize row skipper
 		this._referredRecordsNRows = new Map();
@@ -2170,8 +2170,8 @@ class ResultSetParser {
 	 */
 	reset() {
 
-		// new result accumulators
-		this._records = new Array();
+		// reset result accumulators
+		this._records.length = 0;
 		this._referredRecords = new Object();
 
 		// reset row skipper
