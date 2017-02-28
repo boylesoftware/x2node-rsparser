@@ -17,10 +17,10 @@ const common = require('x2node-common');
  */
 const VALUE_EXTRACTORS = {
 	'string': function(val) {
-		return val;
+		return (val === null ? null : String(val));
 	},
 	'number': function(val) {
-		return val;
+		return (val === null ? null : Number(val));
 	},
 	'boolean': function(val) {
 		return (val === null ? null : (val ? true : false));

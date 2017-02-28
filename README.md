@@ -128,9 +128,9 @@ The `ResultSetParser` exposes the following properties and methods:
 
 When the `feedRow(row)` method is called, the values in the provided `row` argument are considered "raw". Before a value from a result set column is set into the corresponding record property it is passed through a function called *value extractor*. The default value extractors can be overridden by providing custom extraction functions using the modules `registerValueExtractor` function. The following extractor types are used:
 
-* `string` - Used to extract string record properties. The default extractor simply returns the raw value.
-* `number` - Used to extract number record properties. The default extractor simply returns the raw value.
-* `boolean` - Used to extract Boolean record properties. The default extractor returns `null` if the raw value is `null`, otherwise it returns the result of `rawValue ? true : false` conditional operator.
+* `string` - Used to extract string record properties. The default extractor simply returns the raw value as `String(rawValue)` unless it is `null`.
+* `number` - Used to extract number record properties. The default extractor simply returns the raw value as `Number(rawValue)` unless it is `null`.
+* `boolean` - Used to extract Boolean record properties. The default extractor returns `null` if the raw value is `null`, otherwise it returns the result of `(rawValue ? true : false)` conditional operator.
 * `datetime` - Used to extract datetime record properties. The default extractor assumes the raw value to be an instance of `Date` (or `null`) and returns the result of calling `toISOString()` method on it.
 * `isNull` - Special extractor used to test if the property value is `null`. The default extractor returns `true` if the raw value is `null`, or `false` if it is not.
 
