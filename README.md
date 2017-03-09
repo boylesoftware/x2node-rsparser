@@ -8,6 +8,9 @@ The concept behind this parser is yet another take at the problem of mapping rig
 
 * [Usage](#usage)
 * [The API](#the-api)
+* [Record Types Library Extensions](#record-types-library-extensions)
+  * [Nested Object Record Ids](#nested-object-record-ids)
+  * [Map Keys](#map-keys)
 * [The Columns Markup](#the-columns-markup)
   * [Scalar Properties](#scalar-properties)
     * [Simple Scalar Properties](#simple-scalar-properties)
@@ -23,7 +26,7 @@ The concept behind this parser is yet another take at the problem of mapping rig
 
 ## Usage
 
-Instances of the `ResultSetParser` class provided by the module are created using the module's `createResultSetParser` function. An instance of the `ResultSetParser` can be configured once for a specific result set structure and then used to parse one result set at a time, accumulating extracted records in an internal array. Here is a simple example that uses [mysql](https://www.npmjs.com/package/mysql):
+Instances of the `ResultSetParser` class provided by the module are created using the module's `getResultSetParser` function. An instance of the `ResultSetParser` can be configured once for a specific result set structure and then used to parse one result set at a time, accumulating extracted records in an internal array. Here is a simple example that uses [mysql](https://www.npmjs.com/package/mysql):
 
 ```javascript
 const mysql = require('mysql');
@@ -31,7 +34,7 @@ const records = require('x2node-records');
 const rsparser = require('x2node-rsparser');
 
 // create record types library
-const recordTypes = records.createRecordTypesLibrary({
+const recordTypes = records.with(rsparser).buildLibrary({
 	'Person': {
 		properties: {
 			'id': {
@@ -49,7 +52,7 @@ const recordTypes = records.createRecordTypesLibrary({
 });
 
 // create parser to extract Person records
-const parser = rsparser.createResultSetParser(recordTypes, 'Person');
+const parser = rsparser.getResultSetParser(recordTypes, 'Person');
 
 // connect to the database
 const connection = mysql.createConnection({
@@ -90,7 +93,7 @@ connection.query(
 });
 ```
 
-The `createResultSetParser` function takes two arguments: the application's record types library and the name of the record type being extracted from the result set.
+The `getResultSetParser` function takes two arguments: the application's record types library and the name of the record type being extracted from the result set.
 
 Note the first requirement to the result set structure: *the first column of the result set must always be the record id*.
 
@@ -104,7 +107,7 @@ When the query execution is complete, in the `end` event handler we have an arra
 
 The module exposes the following functions:
 
-* `createResultSetParser(recordTypes, topRecordTypeName)` - Used to create a new parser. The first argument is an instance of `RecordTypesLibrary` provided by the [x2node-records](https://www.npmjs.com/package/x2node-records) module. The second argument is a string that specifies the name of the record type extracted bu the parser from the result set.
+* `getResultSetParser(recordTypes, topRecordTypeName)` - Used to create a new parser. The first argument is an instance of `RecordTypesLibrary` provided by the [x2node-records](https://www.npmjs.com/package/x2node-records) module. The second argument is a string that specifies the name of the record type extracted bu the parser from the result set.
 
   Note, that before a new parser instance can be used, it must be initialized with the result set column labels called the *columns markup*.
 
@@ -147,6 +150,119 @@ rsparser.registerValueExtractor('number', function(rawVal) {
 	return (rawVal === null ? null : Number(rawVal));
 });
 ```
+
+## Record Types Library Extensions
+
+The result set parser module extends the record types library with some specific features that it needs in order to be able to parse the rows. First of all, the module itself must be added as an extension when the record types library is built:
+
+```javascript
+const records = require('x2node-records');
+const rsparser = require('x2node-rsparser');
+
+const recordTypes = records.with(rsparser).buildLibrary({
+	...
+});
+```
+
+Then, there are certain requirements and additional property definition attributes.
+
+### Nested Object Record Ids
+
+For the module's merge functionality to function correctly, there is one requirement for nested object arrays: the nested objects *must* have an id property. For example:
+
+```javascript
+{
+	...
+	'Order': {
+		properties: {
+			...
+			'lineItems': {
+				valueType: 'object[]',
+				properties: {
+					'id': {
+						valueType: 'number',
+						role: 'id'
+					},
+					'productRef': {
+						valueType: 'ref(Product)'
+					},
+					'quantity': {
+						valueType: 'number'
+					}
+				}
+			},
+			...
+		}
+	},
+	...
+}
+```
+
+The line item id in the example above uniquely identifies the line item record within the collection of the order's line items.
+
+Note that scalar nested objects *may not* have an id property (their id is the parent record id). And for the maps it doesn't matter.
+
+### Map Keys
+
+Another requirement is that the parser must know the value type of the key for map properties when it comes from the database. The key is always converted to a string when it is set into the resulting record JSON object, but the parser still needs to use a correct value extractor when it receives the key value in a result set row.
+
+There are two ways of specifying the map key value type. One is to use `keyValueType` property definition attribute:
+
+```javascript
+{
+	...
+	'Student': {
+		properties: {
+			...
+			'scores': {
+				valueType: 'number{}',
+				keyValueType: 'string'
+			},
+			...
+		}
+	},
+	...
+}
+```
+
+The key value type be "string", "number", "boolean", "datetime" or a reference.
+
+Alternatively, for nested object and reference map properties, the key can be specified by naming a property in the nested object or the reference target record type that acts as the map key. To do that, `keyPropertyName` attribute can be used:
+
+```javascript
+{
+	...
+	'Student': {
+		properties: {
+			...
+			'scores': {
+				valueType: 'object{}',
+				keyPropertyName: 'courseCode',
+				properties: {
+					'courseCode': {
+						valueType: 'string'
+					},
+					'score': {
+						valueType: 'number'
+					}
+				}
+			},
+			...
+		}
+	},
+	...
+}
+```
+
+Either `keyValueType` or `keyPropertyName` attribute can be used, but not both.
+
+The module also adds a few additional properties to the records module's `PropertyDescriptor` class:
+
+* `keyValueType` - For a map property provides scalar value type of the map keys. May be "string", "number", "boolean", "datetime" or "ref".
+
+* `keyRefTarget` - If `keyValueType` is "ref", this is the target record type name.
+
+* `keyPropertyName` - If provided in the definition, this is the name of the property in the nested object or referred record type that acts as the key for a nested object or reference map property.
 
 ## The Columns Markup
 
