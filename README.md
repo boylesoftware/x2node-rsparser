@@ -143,7 +143,7 @@ The extractor functions receive the following arguments:
 * `rowNum` - Zero-based result set row number.
 * `colNum` - Zero-based result set column number.
 
-For example, if the database returns numbers as strings, a custom extractor could be used to fix that:
+For example, the default extractor can be overridden (with an identical one) like this:
 
 ```javascript
 rsparser.registerValueExtractor('number', function(rawVal) {
@@ -455,7 +455,7 @@ Columns `shippingAddress`, `paymentInfo` and `b$billingAddress` are checked by t
 
 #### Polymorphic Nested Objects
 
-Similarly to the regular nested object properties, polymorphic nested objects use prefixed nesting levels in the markup. However, an additional nesting level is added between the parent and the level of the object properties. This additional level is used for the subtypes and the name of the corresponding subtype is specified in the column markup instead of the property name. Consider the following example:
+Similarly to the regular nested object properties, polymorphic nested objects use prefixed nesting levels in the markup. However, an additional nesting level is added between the parent and the level of the object properties. This additional level is used for the common properties and the subtypes. The subtype name is used as a property name in the markup as if it were a nested object property. Consider the following example:
 
 ```javascript
 {
@@ -475,6 +475,11 @@ Similarly to the regular nested object properties, polymorphic nested objects us
 			'paymentInfo': {
 				valueType: 'object?',
 				typePropertyName: 'type',
+				properties: {
+					'active': {
+						valueType: 'boolean'
+					}
+				},
 				subtypes: {
 					'CREDIT_CARD': {
 						properties: {
@@ -509,6 +514,7 @@ The markup then could be:
 ```javascript
 [
 	'id', 'firstName', 'lastName', 'paymentInfo',
+		'a$active',
 		'a$CREDIT_CARD',
 			'aa$last4Digits', 'aa$expDate',
 		'a$ACH_TRANSFER',
@@ -516,7 +522,7 @@ The markup then could be:
 ]
 ```
 
-The value in the `paymentInfo` column is completely ignored by the parser. It is only used to indicate that the following columns markup is attributed to the `paymentInfo` property. If values in both `a$CREDIT_CARD` and `a$ACH_TRANSFER` columns are `NULL`, the `paymentInfo` property is left unset in the resulting Person record. Otherwise, only one of these columns is allowed to have a non-`NULL` value. An object of that subtype is then created by the parser and the following nested object property columns markup is used to populate it.
+The value in the `paymentInfo` column is used by the parser to determine if the polymorphic object is present: if it is `NULL`, the object is assumed to be absent and the `paymentInfo` property in the resulting *Person* record is left unset. Otherwise, only one of `a$CREDIT_CARD` and `a$ACH_TRANSFER` columns is allowed to have a non-`NULL` value. An object of the subtype whose type column is not `NULL` is created by the parser and the following nested object properties markup is used to populate it.
 
 For example, if we had the following tables:
 
@@ -548,16 +554,16 @@ then a query with embedded markup could be:
 
 ```sql
 SELECT
-	p.id            AS 'id',
-	p.fname         AS 'firstName',
-	p.lname         AS 'lastName',
-	TRUE            AS 'paymentInfo',
-	cc.person_id    AS   'a$CREDIT_CARD',
-	cc.last4digits  AS     'aa$last4Digits',
-	cc.expdate      AS     'aa$expDate',
-	ba.person_id    AS   'a$ACH_TRANSFER',
-	ba.accounttype  AS     'ab$accountType',
-	ba.last4digits  AS     'ab$last4Digits'
+	p.id                                  AS 'id',
+	p.fname                               AS 'firstName',
+	p.lname                               AS 'lastName',
+	COALESCE(cc.person_id, ba.person_id)  AS 'paymentInfo',
+	cc.person_id                          AS   'a$CREDIT_CARD',
+	cc.last4digits                        AS     'aa$last4Digits',
+	cc.expdate                            AS     'aa$expDate',
+	ba.person_id                          AS   'a$ACH_TRANSFER',
+	ba.accounttype                        AS     'ab$accountType',
+	ba.last4digits                        AS     'ab$last4Digits'
 FROM
 	persons AS p
 	LEFT JOIN credit_cards AS cc ON cc.person_id = p.id
@@ -664,7 +670,7 @@ The fetched Location records will end up in the parser's `referredRecords` prope
 
 #### Polymorphic References
 
-As with nested objects, the references can be polymoprhic allowing referencing records of different types in the same reference property. The markup syntax for the polymorphic references is similar to that for the polymorphic nested objects. The difference is that instead of subtype names record type names are used in the markup.
+As with nested objects, the references can be polymoprhic allowing referencing records of different types in the same reference property. The markup syntax for the polymorphic references is similar to that for the polymorphic nested objects. The difference is that instead of subtype names record type names are used in the markup (plus, of course, no shared properties).
 
 For example, given the record type definitions:
 
@@ -754,12 +760,12 @@ Or, to also fetch the referred Product and Service records:
 ```sql
 SELECT
 	a.id                   AS 'id',
-	TRUE                   AS 'lastInterestedInRef:', -- note the colon
-	a.interest_product_id  AS   'a$Product',
+	TRUE                   AS 'lastInterestedInRef',
+	a.interest_product_id  AS   'a$Product:',  -- note the colon
 	p.id                   AS     'aa$id',
 	p.name                 AS     'aa$name',
 	p.price                AS     'aa$price',
-	a.interest_service_id  AS   'a$Service',
+	a.interest_service_id  AS   'a$Service:',  -- note the colon
 	s.id                   AS     'ab$id',
 	s.name                 AS     'ab$name',
 	s.rate                 AS     'ab$rate'
@@ -769,13 +775,15 @@ FROM
 	LEFT JOIN services AS s ON s.id = a.interest_service_id
 ```
 
+The queries above assume that one of the `interest_product_id` and `interest_service_id` columns is always set. If the reference is optional, the `lastInterestedInRef` column must contain an expression that evaluates to `NULL` if none of the references are set.
+
 ### Collection Properties
 
-Collection properties, such as arrays and maps, add a completely new level of complexity to the problem of mapping two-dimensional result set grid into the record objects. Unless we want to issue a separate SQL query to fetch collection properties for each record in our main result set, which may prove to be exceptionally inefficient, we want to include the collection values in the same result set with the top records. SQL allows it with table joins, but now in our result set we can't say that each row corresponds to one record. Instead, multiple rows may belong to the same record and what's even worse, we don't know in advance how many rows.
+Collection properties, such as arrays and maps, introduce a higher level of complexity to the problem of mapping two-dimensional result set grids into the record objects. Unless we want to issue a separate SQL query to fetch collection properties for each record in our main result set, which may prove to be exceptionally inefficient, we want to include the collection values in the same result set with the top records. SQL allows it with table joins, which leads, however, to a situation when we no longer can say that each single row corresponds to one single record. Instead, multiple rows may belong to the same record and what's even worse, we don't know in advance how many rows.
 
-To solve this problem, the `ResultSetParser` introduces the concept of *anchor columns*. The SELECT query then is written in such way that rows that belong to the same record (or nested object) are groupped together in the result set and all share the same value in the anchor column. When the parser progresses through the result set rows, as soon as the value in the anchor column changes it knows that the row belongs to the new object anchored at that column. Every result set has at least one anchor column and that's the first columnn, which contains the top record id. When only scalar properties are used, every row in the result set will have a different record id in the first column and that's why every row results in a new record. However, adding an array property to the result set will result in the parent record properties to be duplicated in the subsequent rows, including the record id, and that is how the parser will know that the rows belong to the same parent record.
+To solve this problem, the `ResultSetParser` introduces the concept of *anchor columns*. The SELECT query is written in such way that rows that belong to the same record (or nested object) are groupped together in the result set and all share the same value in the anchor column. When the parser progresses through the result set rows, as soon as the value in the anchor column changes it knows that the row belongs to the new object anchored at that column. Every result set has at least one anchor column and that's the first columnn, which contains the top record id. When only scalar properties are used, every row in the result set will have a different record id in the first column and that's why every row results in a new record. However, adding an array property to the result set will result in the parent record properties to be duplicated in the subsequent rows, including the record id, and that is how the parser will know that the rows belong to the same parent record.
 
-Another important concept is a *collection axis*. Because of the way how SQL joins work, it is impossible to select multiple collections on the same nesting level in a single query. Multiple collections can be selected, but only if they lay along a single collection axis. That is a collection of nested objects can have nested properties that are collections themselves and so on. In that case, multiple anchor columns are specified in the markup and a single query can be used. When tree-like data structures need to be loaded from the database with multiple collection properties on the same nesting level, several queries must be used, one for each collection axis, and the parsers can be merged to form the final result. This functionality is discussed later in this manual.
+Another important concept is *collection axis*. Because of the way how SQL joins work, it is impossible to select multiple collections on the same nesting level in a single query. Multiple collections can be selected, but only if they lay along a single collection axis. That is a collection of nested objects can have nested properties that are collections themselves and so on. In that case, multiple anchor columns are specified in the markup and a single query can be used. When tree-like data structures need to be loaded from the database with multiple collection properties on the same nesting level, several queries must be used, one for each collection axis, and the parsers can be merged to form the final result. This merge functionality is discussed later in this manual.
 
 Let's consider different scenarios case by case.
 
@@ -799,7 +807,7 @@ Given a record type like the following:
 				valueType: 'string'
 			},
 			'scores': {
-				valueType: '[number]'
+				valueType: 'number[]'
 			}
 		}
 	},
@@ -839,7 +847,7 @@ ORDER BY
 	p.id                        -- group person record rows together
 ```
 
-Several important notes about the example above:
+Several important points about the example above:
 
 * Columns that belong to the collection properties *must* always be at the end of the columns list. Given that only one collection property can be fetched at a given nesting level, no column that belongs to the parent object can appear *after* the collection property column and the columns that belong to the collection elements.
 
@@ -847,11 +855,11 @@ Several important notes about the example above:
 
   In some databases, strictly speaking, there is no need for the `ORDER BY` clause, because it is one of the join side-effects that the rows are grouped by the id, but it is good to have the clause nonetheless to underscore the importance of it. Also, the result set can be ordered using other criteria as well as long as the rows for the same record are still grouped together. For example, if we wanted to sort the person records by last and first name, the clause would be `ORDER BY p.lname, p.fname, p.id`. The id is still needed for cases when the last and first names are identical for different records.
 
-* If the `scores` column contains `NULL`, it means that the person record does not have `scores` property and it is left unset. Note, that if it is `NULL`, only one row belong to the person record and in the next row the person id must change.
+* If the `scores` column contains `NULL`, it means that the person record does not have `scores` property and it is left unset. Note, that if it is `NULL`, only one row belongs to the person record and in the next row the person id must change.
 
 * The array value column, which is the last column in the list, has a prefix, which takes to the next nesting level, but does not have a property name, because array elements do not have their own names.
 
-Similarly to an array, a map property is fetched the same way except that the map property column is used for the entry key. The value in the key column must be a string. For example, for a record type:
+Similarly to an array, a map property is fetched the same way except that the map property column is used for the entry key. For example, for a record type:
 
 ```javascript
 {
@@ -869,7 +877,8 @@ Similarly to an array, a map property is fetched the same way except that the ma
 				valueType: 'string'
 			},
 			'scores': {
-				valueType: '{number}'
+				valueType: 'number{}',
+				keyValueType: 'string' // map key type must be specified
 			}
 		}
 	},
@@ -933,7 +942,7 @@ Nested object collections are similar to the simple value collections except tha
 				valueType: 'string'
 			},
 			'addresses': {
-				valueType: '[object]',
+				valueType: 'object[]',
 				properties: {
 					'id': { // objects in nested arrays must have an id
 						valueType: 'number',
@@ -1007,11 +1016,11 @@ And we can fetch multiple nested collections along a single collection axis as w
 		properties: {
 			...
 			'addresses': {
-				valueType: '[object]',
+				valueType: 'object[]',
 				properties: {
 					...
 					'deliveries': {
-						valueType: '[object]',
+						valueType: 'object[]',
 						properties: {
 							'id': {
 								valueType: 'number',
@@ -1071,7 +1080,7 @@ ORDER BY
 
 Note, that now we have two anchors in the markup and we also add the second anchor to the `ORDER BY` clause to ensure correct row grouping.
 
-Polymorphic nested objects can be fetched similarly. However, the anchor column (the column with the markup matching the polymorphic nested object property in the parent object) must have a value that's unique between all the subtypes. Sometimes, it is tricky to achieve that in a query if the it is possible that objects of different subtypes may have the same id in the database. The subtype identifier must be somehow mixed in to the anchor column value in that case. For example, given slightly modified Person record type:
+Polymorphic nested objects can be fetched similarly. However, the anchor column (the column with the markup matching the polymorphic nested object property in the parent object) must have a value that's unique between all the subtypes. Sometimes, it is tricky to achieve that in a query if objects of different subtypes can have the same id in the database. The subtype identifier must be somehow mixed in to the anchor column value in that case. For example, given slightly modified Person record type:
 
 ```javascript
 {
@@ -1089,7 +1098,7 @@ Polymorphic nested objects can be fetched similarly. However, the anchor column 
 				valueType: 'string'
 			},
 			'addresses': {
-				valueType: '[object?]',
+				valueType: 'object[]',
 				typePropertyName: 'type',
 				subtypes: {
 					'US': {
@@ -1225,7 +1234,7 @@ ORDER BY
 
 The above somewhat complicated query is just an example. With a different database schema, such as use of link tables, the query could be much more elegant and providing better performance. The point of the above query is to demonstrate that the polymorphic nested object collection property anchor column *must* contain a value that is unique among all of the subtypes. Also, technically, that would matter only if we had further nested collection properties in the address objects.
 
-All of the above example deal with nested object array properties. The only change that needs to be made to make them nested object maps is to have the map keys in the anchor columns.
+All of the above examples deal with nested object array properties. The only change that needs to be made to make them nested object maps is to have the map keys in the anchor columns.
 
 #### Reference Collections
 
@@ -1247,7 +1256,7 @@ Reference collection properties are similar to simple value collections when the
 				valueType: 'string'
 			},
 			'orderRefs': {
-				valueType: '[ref(Order)]'
+				valueType: 'ref(Order)[]'
 			}
 		}
 	},
@@ -1324,7 +1333,7 @@ ORDER BY
 	a.id
 ```
 
-For fetched reference arrays and maps the first column following the anchor ("orderRefs:" in the example above) *must* be the referred record id. Also, in the tables configuration used in the above example it is not possible to have the same referred record appear more than once in the collection. However, if a link table were used, it becomes possible. In that case, the query must make sure that the values in the anchor column do not repeat. In case of a map that's not a problem as the anchor column is used for the map key, which must not repeat anyway. For an array, however, it becomes a problem as the referred record id column can no longer be used as the anchor, because it may repeat. One way to solve the problem is to have an additional column in the link table for the array element index and have either the appliction or the database (via autogenerated id column) maintain unique values in that column within every references array. For example, for tables:
+For fetched reference arrays and maps the first column following the anchor (`orderRefs:` in the example above) *must* be the referred record id. Also, in the tables configuration used in the above example it is not possible to have the same referred record appear more than once in the collection. However, if a link table were used, it becomes possible. In that case, the query must make sure that the values in the anchor column do not repeat. In case of a map that's not a problem as the anchor column is used for the map key, which must not repeat anyway. For an array, however, it becomes a problem as the referred record id column can no longer be used as the anchor, because it may repeat. One way to solve the problem is to have an additional column in the link table for the array element index and have either the appliction or the database (via autogenerated id column) maintain unique values in that column within every references array. For example, for tables:
 
 ```sql
 CREATE TABLE accounts (
@@ -1391,7 +1400,7 @@ Polymorphic references work similarly to the polymorphic nested objects. For exa
 				valueType: 'string'
 			},
 			'orderRefs': {
-				valueType: '[ref(Order)]'
+				valueType: 'ref(Order)[]'
 			}
 		}
 	},
@@ -1405,7 +1414,7 @@ Polymorphic references work similarly to the polymorphic nested objects. For exa
 				valueType: 'string'
 			},
 			'items': {
-				valueType: [object],
+				valueType: object[],
 				properties: {
 					'id': {
 						valueType: 'number',
@@ -1507,7 +1516,7 @@ SELECT
 	oi.id          AS   'a$items',
 	oi.id          AS     'aa$id',
 	oi.quantity    AS     'aa$quantity',
-	TRUE           AS     'aa$productOrServiceRef', -- value is ignored
+	TRUE           AS     'aa$productOrServiceRef', -- one must be present
 	oi.product_id  AS       'aaa$Product',
 	oi.service_id  AS       'aaa$Service'
 FROM
@@ -1518,7 +1527,7 @@ ORDER BY
 	a.id, o.id
 ```
 
-Now, if we also want to fetch the referred Product or Service records, then the query would be:
+Now, if we also want to fetch the referred *Product* or *Service* records, then the query would be:
 
 ```sql
 SELECT
@@ -1534,12 +1543,12 @@ SELECT
 	CASE
 		WHEN oi.product_id IS NOT NULL THEN CONCAT('P', oi.product_id)
 		WHEN oi.service_id IS NOT NULL THEN CONCAT('S', oi.service_id)
-    END            AS     'aa$productOrServiceRef:',
-	oi.product_id  AS       'aaa$Product',
+    END            AS     'aa$productOrServiceRef',
+	oi.product_id  AS       'aaa$Product:',
 	p.id           AS         'aaaa$id',
 	p.name         AS         'aaaa$name',
 	p.price        AS         'aaaa$price',
-	oi.service_id  AS       'aaa$Service',
+	oi.service_id  AS       'aaa$Service:',
 	s.id           AS         'aaab$id',
 	s.name         AS         'aaab$name',
 	s.rate         AS         'aaab$rate'
@@ -1555,7 +1564,7 @@ ORDER BY
 
 Note, that the query above absolutely relies on that every order item has *either* product *or* service reference set, but never both (technically, allows none).
 
-Also note the trick in the `aa$productOrServiceRef:` column that makes sure that the anchor values are unique among both products and services in case a product and a service share the same id value. The uniqueness is provided by adding a "P" or "S" prefix to the id depending on which reference is available.
+Also note the trick in the `aa$productOrServiceRef` column that makes sure that the anchor values are unique among both products and services in case a product and a service share the same id value. The uniqueness is provided by adding a "P" or "S" prefix to the id depending on which reference is available.
 
 ## Multiple Collection Axes and Results Merging
 
@@ -1579,7 +1588,7 @@ Let's consider the following record type with two collection properties on the s
 				valueType: 'string'
 			},
 			'addresses': {
-				valueType: '[object]',
+				valueType: 'object[]',
 				properties: {
 					'id': {
 						valueType: 'number',
@@ -1600,7 +1609,7 @@ Let's consider the following record type with two collection properties on the s
 				}
 			},
 			'orderRefs': {
-				valueType: '[ref(Order)]'
+				valueType: 'ref(Order)[]'
 			}
 		}
 	},
@@ -1655,4 +1664,4 @@ Now, the second query parser, after completing parsing the rows, can be merged i
 parser1.merge(parser2);
 ```
 
-after which, the `parser1` will contain the merged Person records in its `records` property and the fetched Order records in its `referredRecords` property. The `parser2` now can be discarded.
+after which, the `parser1` will contain the merged *Person* records in its `records` property and the fetched Order records in its `referredRecords` property. The `parser2` now can be discarded.

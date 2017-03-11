@@ -154,12 +154,13 @@ function invalidPropDef(propDesc, msg) {
  * @private
  * @param {module:x2node-records~PropertyDescriptor} propDesc Map property
  * descriptor.
+ * @param {module:x2node-records~PropertiesContainer} keyPropContainer Key
+ * property container.
  */
-function processKeyProperty(propDesc) {
+function processKeyProperty(propDesc, keyPropContainer) {
 
 	// get the key property descriptor
 	const keyPropName = propDesc._keyPropertyName;
-	const keyPropContainer = propDesc._nestedProperties;
 	if (!keyPropContainer.hasProperty(keyPropName))
 		throw invalidPropDef(
 			propDesc, 'key property ' + keyPropName +
@@ -187,7 +188,7 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 
 	// validate nested object id property
 	if (propDesc.scalarValueType === 'object') {
-		if (propDesc.isArray())
+		if (propDesc.isArray() && !propDesc.isPolymorphRef())
 			ctx.onLibraryValidation(recordTypes => {
 				if (!propDesc.nestedProperties.idPropertyName)
 					throw invalidPropDef(propDesc, 'missing id property.');
@@ -211,17 +212,44 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 			switch (propDesc.scalarValueType) {
 			case 'object':
 				if (propDesc.isPolymorphRef()) {
-					// TODO: implement
-					throw new Error('Polymorphic references not implemented.');
+					ctx.onLibraryComplete(recordTypes => {
+						let firstRefTargetDesc, firstKeyValueType;
+						for (let refTarget of propDesc.subtypes) {
+							if (!recordTypes.hasRecordType(refTarget))
+								continue; // will be caught by the core
+							const refTargetDesc = recordTypes.getRecordTypeDesc(
+								refTarget);
+							if (!refTargetDesc.hasProperty(
+								propDesc.keyPropertyName))
+								throw invalidPropDef(
+									propDesc, 'key property ' +
+										propDesc.keyPropertyName +
+										' not found among record type ' +
+										refTarget + ' properties.');
+							const keyValueType = refTargetDesc.getPropertyDesc(
+								propDesc.keyPropertyName).definition.valueType;
+							if (!firstRefTargetDesc) {
+								firstRefTargetDesc = refTargetDesc;
+								firstKeyValueType = keyValueType;
+							} else if (keyValueType !== firstKeyValueType) {
+								throw invalidPropDef(
+									propDesc, 'key property value type is' +
+										' different in different target record' +
+										' types.');
+							}
+						}
+						if (firstRefTargetDesc)
+							processKeyProperty(propDesc, firstRefTargetDesc);
+					});
 				} else { // nested object
 					ctx.onContainerComplete(container => {
-						processKeyProperty(propDesc);
+						processKeyProperty(propDesc, propDesc.nestedProperties);
 					});
 				}
 				break;
 			case 'ref':
 				ctx.onLibraryComplete(recordTypes => {
-					processKeyProperty(propDesc);
+					processKeyProperty(propDesc, propDesc.nestedProperties);
 				});
 			}
 		} else if (propDef.keyValueType) { // do we have key value type?
