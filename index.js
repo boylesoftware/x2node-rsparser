@@ -50,7 +50,7 @@ const TAG = Symbol('X2NODE_RSPARSER');
  */
 exports.isSupported = function(obj) {
 
-	return obj[TAG];
+	return (obj[TAG] ? true : false);
 };
 
 /**
@@ -189,12 +189,12 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 	// validate nested object id property
 	if (propDesc.scalarValueType === 'object') {
 		if (propDesc.isArray() && !propDesc.isPolymorphRef())
-			ctx.onLibraryValidation(recordTypes => {
+			ctx.onLibraryValidation(() => {
 				if (!propDesc.nestedProperties.idPropertyName)
 					throw invalidPropDef(propDesc, 'missing id property.');
 			});
 		else if (!propDesc.isMap())
-			ctx.onLibraryValidation(recordTypes => {
+			ctx.onLibraryValidation(() => {
 				if (propDesc.nestedProperties.idPropertyName)
 					throw invalidPropDef(
 						propDesc, 'may not have an id property.');
@@ -242,13 +242,13 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 							processKeyProperty(propDesc, firstRefTargetDesc);
 					});
 				} else { // nested object
-					ctx.onContainerComplete(container => {
+					ctx.onContainerComplete(() => {
 						processKeyProperty(propDesc, propDesc.nestedProperties);
 					});
 				}
 				break;
 			case 'ref':
-				ctx.onLibraryComplete(recordTypes => {
+				ctx.onLibraryComplete(() => {
 					processKeyProperty(propDesc, propDesc.nestedProperties);
 				});
 			}
