@@ -113,6 +113,8 @@ The module exposes the following functions:
 
 * `registerValueExtractor(type, extractorFunc)` - Register a custom result set column value extractor. The first argument is the extractor type (one of "string", "number", "boolean", "datetime" or "isNull") and the second argument is the extractor function. After a value extractor is registered, all subsequent parsers created by the module will use the new extractor. The value extractors are discussed later in this section.
 
+* `extractValue(type, rawVal, [rowNum], [colInd])` - Allows to call a registred value extractor function directly. If `rowNum` and `colInd` are not provided (which usually makes sense only in a context of parsing a result set row and not a direct extractor function call from the application code), they are assumed to be zeros.
+
 The `ResultSetParser` exposes the following properties and methods:
 
 * `init(markup)` - Initialize the parser with columns markup. The markup is normally extracted from the result set column labels. The `markup` argument is an array of strings, one string per result set column. The markup syntax is discussed in detail later in this manual. Once the parser is initialized, result set rows can start to be fed to it for parsing.

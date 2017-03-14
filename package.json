@@ -1,6 +1,6 @@
 {
   "name": "x2node-rsparser",
-  "version": "2.0.0",
+  "version": "2.1.0-snapshot",
   "description": "Select SQL query result set parser.",
   "main": "index.js",
   "scripts": {

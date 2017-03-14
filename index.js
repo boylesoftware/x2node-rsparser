@@ -97,13 +97,28 @@ exports.getResultSetParser = function(recordTypes, topRecordTypeName) {
 /**
  * Register a custom result set column value extractor.
  *
- * @param {string} type Extractor type.
+ * @param {string} type Value type.
  * @param {module:x2node-rsparser~valueExtractor} extractorFunc Extractor
  * function.
  */
 exports.registerValueExtractor = function(type, extractorFunc) {
 
 	VALUE_EXTRACTORS[type] = extractorFunc;
+};
+
+/**
+ * Call registered value extractor to convert raw database value into the record
+ * property value.
+ *
+ * @param {string} type Value type.
+ * @param {*} rawVal Raw value from the database.
+ * @param {number} [rowNum=0] Optional result set row number.
+ * @param {number} [colInd=0] Optional result set column index.
+ * @returns {*} Corresponding value for the record property.
+ */
+exports.extractValue = function(type, rawVal, rowNum, colInd) {
+
+	return VALUE_EXTRACTORS[type](rawVal, (rowNum || 0), (colInd || 0));
 };
 
 
