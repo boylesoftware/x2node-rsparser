@@ -2,6 +2,9 @@
  * Database query result set parser module.
  *
  * @module x2node-rsparser
+ * @requires module:x2node-common
+ * @requires module:x2node-records
+ * @implements {module:x2node-records.Extension}
  */
 'use strict';
 
@@ -11,9 +14,10 @@ const ResultSetParser = require('./lib/result-set-parser.js');
 
 
 /**
- * Value extractors.
+ * Value extractors registry.
  *
  * @private
+ * @type {Object.<string,valueExtractor>}
  */
 const VALUE_EXTRACTORS = {
 	'string': function(val) {
@@ -38,12 +42,19 @@ const VALUE_EXTRACTORS = {
 // Module
 /////////////////////////////////////////////////////////////////////////////////
 
+/**
+ * Compatibility tag.
+ *
+ * @private
+ * @constant {Symbol}
+ */
 const TAG = Symbol('X2NODE_RSPARSER');
 
 /**
  * Tell if the provided object is supported by the module. Currently, only a
  * record types library instance can be tested using this function and it tells
- * if the library was constructed with the rsparser extension.
+ * if the library was constructed with the <code>x2node-rsparser</code>
+ * extension.
  *
  * @param {*} obj Object to test.
  * @returns {boolean} <code>true</code> if supported by the rsparser module.
@@ -54,13 +65,14 @@ exports.isSupported = function(obj) {
 };
 
 /**
- * Get new query result set parser. Before it can be used, the parser instance
- * must be initialized with markup using
- * [init]{@link module:x2node-rsparser~ResultSetParser#init} method.
+ * Get new result set parser. Before it can be used, the parser instance must be
+ * initialized with the markup using
+ * [init()]{@link module:x2node-rsparser~ResultSetParser#init} method.
  *
  * @param {module:x2node-records~RecordTypesLibrary} recordTypes Record types
  * library.
- * @param {string} topRecordTypeName Name of the record type being parsed.
+ * @param {string} topRecordTypeName Name of the record type, records of which
+ * are being extracted from the result set.
  * @returns {module:x2node-rsparser~ResultSetParser} New uninitialized result set
  * parser.
  */
@@ -116,18 +128,18 @@ exports.extendRecordTypesLibrary = function(ctx, recordTypes) {
  * Regular expression for parsing map key value type specifications.
  *
  * @private
- * @type {RegExp}
+ * @constant {RegExp}
  */
 const KEY_VALUE_TYPE_RE = new RegExp(
 	'^(string|number|boolean|datetime)|(ref)\\(([^|\\s]+)\\)$'
 );
 
 /**
- * RSParser module specific
+ * <code>x2node-rsparser</code> module specific
  * [PropertyDescriptor]{@link module:x2node-records~PropertyDescriptor}
  * extension.
  *
- * @mixin RSParserPropertyDescriptorExtension
+ * @mixin PropertyDescriptorWithRSParser
  * @static
  */
 
@@ -288,7 +300,7 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 	/**
 	 * For a map property, scalar value type of the map key.
 	 *
-	 * @member {string} module:x2node-rsparser~RSParserPropertyDescriptorExtension#keyValueType
+	 * @member {string=} module:x2node-rsparser~PropertyDescriptorWithRSParser#keyValueType
 	 * @readonly
 	 */
 	Object.defineProperty(propDesc, 'keyValueType', {
@@ -299,7 +311,7 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 	 * If <code>keyValueType</code> is a reference, the reference target record
 	 * type name.
 	 *
-	 * @member {string} module:x2node-rsparser~RSParserPropertyDescriptorExtension#keyRefTarget
+	 * @member {string=} module:x2node-rsparser~PropertyDescriptorWithRSParser#keyRefTarget
 	 * @readonly
 	 */
 	Object.defineProperty(propDesc, 'keyRefTarget', {
@@ -310,7 +322,7 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 	 * For a nested object or reference map property, name of the property in the
 	 * nested object or the referred record that acts as the map key.
 	 *
-	 * @member {string} module:x2node-rsparser~RSParserPropertyDescriptorExtension#keyPropertyName
+	 * @member {string=} module:x2node-rsparser~PropertyDescriptorWithRSParser#keyPropertyName
 	 * @readonly
 	 */
 	Object.defineProperty(propDesc, 'keyPropertyName', {
