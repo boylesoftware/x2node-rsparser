@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "eslint . && mocha",
-    "postversion": "git push"
+    "postversion": "git push --tags"
   },
   "repository": {
     "type": "git",
