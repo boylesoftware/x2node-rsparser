@@ -195,8 +195,7 @@ function processKeyProperty(propDesc, keyPropContainer) {
 	const keyPropDesc = keyPropContainer.getPropertyDesc(keyPropName);
 
 	// validate the key property type
-	if (!keyPropDesc.isScalar() || keyPropDesc.isPolymorph() ||
-		(keyPropDesc.scalarValueType === 'object'))
+	if (!keyPropDesc.isScalar() || (keyPropDesc.scalarValueType === 'object'))
 		throw invalidPropDef(
 			propDesc, 'key property ' + keyPropName +
 				' is not suitable to be map key.');
@@ -241,7 +240,7 @@ exports.extendPropertyDescriptor = function(ctx, propDesc) {
 				if (propDesc.isPolymorphRef()) {
 					ctx.onLibraryComplete(recordTypes => {
 						let firstRefTargetDesc, firstKeyValueType;
-						for (let refTarget of propDesc.subtypes) {
+						for (let refTarget of propDesc.refTargets) {
 							if (!recordTypes.hasRecordType(refTarget))
 								continue; // will be caught by the core
 							const refTargetDesc = recordTypes.getRecordTypeDesc(
