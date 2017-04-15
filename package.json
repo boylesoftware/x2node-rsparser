@@ -1,6 +1,6 @@
 {
   "name": "x2node-rsparser",
-  "version": "2.1.0-snapshot",
+  "version": "2.1.0-alpha.0",
   "description": "Select SQL query result set parser.",
   "main": "index.js",
   "scripts": {
@@ -22,7 +22,7 @@
     "node": ">=4.3.2"
   },
   "dependencies": {
-    "x2node-common": "^1.1.0",
+    "x2node-common": "^1.2.0",
     "x2node-records": "^2.1.0"
   },
   "devDependencies": {
