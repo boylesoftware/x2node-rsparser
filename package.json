@@ -1,6 +1,6 @@
 {
   "name": "x2node-rsparser",
-  "version": "2.1.7-alpha.0",
+  "version": "2.1.7",
   "description": "Select SQL query result set parser.",
   "keywords": [
     "sql",
